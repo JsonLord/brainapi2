@@ -151,6 +151,18 @@ class ResolveRelativeDateTests(unittest.TestCase):
             "yesterday",
         )
 
+    def test_next_month_on_century_non_leap_year_does_not_crash(self):
+        self.assertEqual(
+            resolve_relative_date("next month", "2100-01-31"),
+            "28/02/2100",
+        )
+
+    def test_last_month_on_century_non_leap_year_does_not_crash(self):
+        self.assertEqual(
+            resolve_relative_date("last month", "2100-03-31"),
+            "28/02/2100",
+        )
+
 
 class ToNaiveUtcTests(unittest.TestCase):
     def test_naive_value_is_returned_unchanged(self):

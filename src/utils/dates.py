@@ -1,3 +1,4 @@
+import calendar
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import re
@@ -64,7 +65,7 @@ def _shift_months(ref: datetime, delta: int) -> datetime:
     month = ref.month - 1 + delta
     year = ref.year + month // 12
     month = month % 12 + 1
-    day = min(ref.day, [31, 29 if year % 4 == 0 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
+    day = min(ref.day, [31, 29 if calendar.isleap(year) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
     return ref.replace(year=year, month=month, day=day)
 
 
