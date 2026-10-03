@@ -30,6 +30,8 @@ from src.services.api.routes.public import public_router
 from src.services.api.routes.retrieve import retrieve_router
 from src.services.api.routes.system import system_router
 from src.services.api.routes.tasks import tasks_router
+from src.services.api.routes.workspaces import workspace_router
+from src.services.api.routes.workspace_api import workspace_api_router
 from src.lib.tracing.middleware import TraceMiddleware
 from src.lib.tracing.runtime import start_runtime_monitoring, stop_runtime_monitoring
 
@@ -96,6 +98,14 @@ async def lifespan(app: FastAPI):
     ctx = PluginContext.from_app(app)
     loader = PluginLoader(plugins_dir=PLUGINS_DIR, context=ctx)
     results = loader.load_all()
+
+    try:
+        from src.services.data.main import data_adapter
+        from src.services.workspaces import WorkspaceService
+
+        WorkspaceService(data_adapter).bootstrap()
+    except Exception:
+        logger.exception("Workspace bootstrap deferred; persistence is unavailable")
 
     _log_plugin_banner(loader, results)
     _enforce_plugin_results(results)
@@ -198,6 +208,8 @@ app.include_router(model_router)
 app.include_router(system_router)
 app.include_router(tasks_router)
 app.include_router(public_router)
+app.include_router(workspace_router)
+app.include_router(workspace_api_router)
 install_openapi_contract(app)
 
 

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "typecheck": "tsc -b --pretty false",
+    "test": "node --test src/workspaces/workspaceRoutes.test.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

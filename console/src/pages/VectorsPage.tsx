@@ -18,7 +18,7 @@ import {
   TableToolbarContent,
   TableToolbarFilters,
 } from "lumen-ui-kit";
-import { apiFetch } from "../lib/api";
+import { useWorkspace } from "../workspaces/WorkspaceProvider";
 import { JsonInspector, InlineField, Workbench } from "../components/Workbench";
 
 interface VectorItem {
@@ -33,6 +33,7 @@ interface VectorStore {
 }
 
 export default function VectorsPage() {
+  const { apiFetch, activeWorkspace } = useWorkspace();
   const [stores, setStores] = useState<VectorStore[]>([]);
   const [store, setStore] = useState("");
   const [vectors, setVectors] = useState<VectorItem[]>([]);
@@ -53,7 +54,7 @@ export default function VectorsPage() {
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load stores"),
       );
-  }, []);
+  }, [apiFetch, activeWorkspace?.brain_id]);
 
   useEffect(() => {
     if (!store) return;
@@ -89,7 +90,7 @@ export default function VectorsPage() {
     return () => {
       cancelled = true;
     };
-  }, [store, skip, limit, includeEmbeddings]);
+  }, [apiFetch, activeWorkspace?.brain_id, store, skip, limit, includeEmbeddings]);
 
   const start = total === 0 ? 0 : skip + 1;
   const end = Math.min(skip + limit, total);

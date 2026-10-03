@@ -77,6 +77,13 @@ When it's up:
 - **Console (web UI)** → `http://localhost:8000/console`
 - **MCP server** → `http://localhost:8001/mcp`
 
+Set `PUBLIC_BASE_URL` to the externally visible, scheme-qualified deployment URL
+(without a trailing slash) when BrainAPI is served behind a proxy. BrainAPI uses it
+to publish stable workspace API and Console URLs such as
+`$PUBLIC_BASE_URL/brains/company/api` and
+`$PUBLIC_BASE_URL/console/w/company/`. If it is unset, discovery responses use the
+request base URL.
+
 Log in to the console with the `BRAINPAT_TOKEN` generated during setup. That's it — you have a working brain.
 
 ### TUI commands

@@ -9,6 +9,7 @@ Modified By: Christian Nonis <alch.infoemail@gmail.com>
 """
 
 import asyncio
+import re
 
 from src.services.api.constants.requests import CreateBrainRequest
 from src.services.brain_lifecycle import BrainLifecycleService
@@ -27,8 +28,8 @@ async def create_new_brain(request: CreateBrainRequest):
     """
     Create a new brain
     """
-    if not (request.brain_id.isalnum() and request.brain_id[0].isalpha()):
-        raise ValueError("brain_id must be alphanumeric and start with a letter")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", request.brain_id):
+        raise ValueError("brain_id contains unsupported characters")
     result = await asyncio.to_thread(data_adapter.create_brain, request.brain_id)
     return result
 
