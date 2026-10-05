@@ -77,6 +77,118 @@ When it's up:
 - **Console (web UI)** → `http://localhost:8000/console`
 - **MCP server** → `http://localhost:8001/mcp`
 
+Set `PUBLIC_BASE_URL` to the externally visible, scheme-qualified deployment URL
+(without a trailing slash) when BrainAPI is served behind a proxy. BrainAPI uses it
+to publish stable workspace API and Console URLs such as
+`$PUBLIC_BASE_URL/brains/company/api` and
+`$PUBLIC_BASE_URL/console/w/company/`. If it is unset, discovery responses use the
+request base URL.
+
+### Workspace API base
+
+Every active workspace publishes a stable API base on the same BrainAPI
+deployment:
+
+```text
+https://HOST/brains/aux-research/api
+```
+
+Authenticate with either `Authorization: Bearer $BRAIN_PAT` or the `BrainPAT`
+header. The workspace path selects the brain, so `X-Brain-ID` is not required.
+If a caller supplies `X-Brain-ID` or a query/body `brain_id` that conflicts with
+the workspace path, BrainAPI returns `409 BRAIN_SCOPE_CONFLICT`. Existing clients
+using legacy endpoints plus `X-Brain-ID` remain supported.
+
+Useful discovery URLs are:
+
+```text
+GET /brains/aux-research/api
+GET /brains/aux-research/api/openapi.json
+```
+
+The workspace facade includes ingest, retrieval/data, graph model, task, and
+brain-specific metadata routes. System management routes are never mirrored.
+
+| Hosted route family | Methods | Scope/behavior |
+| --- | --- | --- |
+| `/ingest/`, `/ingest/structured`, `/ingest/file` | `POST` | Queues the existing ingestion workers with the resolved workspace `brain_id`. |
+| `/retrieve/*` | `GET`, `POST` | Reuses the existing context, search, graph, observation, data, recommendation, and vector handlers. |
+| `/model/entity`, `/model/relationship` | `POST`, `PUT` | Reuses the existing graph mutation handlers. |
+| `/tasks/`, `/tasks/{task_id}` | `GET` | Reads only the task namespace for the resolved workspace; foreign task IDs return `404`. |
+| `/meta/relationships-properties`, `/meta/entity-labels`, `/meta/entity-properties` | `GET` | Exposes brain-specific metadata only. `/meta/login-info` is intentionally excluded. |
+
+All paths in this table are relative to
+`/brains/{workspace_slug}/api`. Management (`/system/*`), health, demo, and
+plugin routes are not implicitly exposed. The discovery endpoint describes the
+active workspace, while its OpenAPI document contains only this allowlisted
+facade.
+
+### Using a Brain Workspace from an Agent
+
+An external agent only needs a deployment URL, workspace slug, and existing
+BrainPAT:
+
+```ini
+BRAINAPI_BASE_URL=https://HOST
+BRAINAPI_WORKSPACE=aux-research
+BRAINAPI_PAT=...
+```
+
+These values derive three stable surfaces:
+
+```text
+Native API: https://HOST/brains/aux-research/api
+Agent API:  https://HOST/brains/aux-research/agent
+MCP:        https://HOST/brains/aux-research/mcp
+```
+
+Retrieve compact agent context without knowing BrainAPI's internal route tree:
+
+```bash
+curl \
+  -H "Authorization: Bearer $BRAINAPI_PAT" \
+  -H "Content-Type: application/json" \
+  https://HOST/brains/aux-research/agent/context \
+  -d '{"query":"What do we know about X?"}'
+```
+
+Queue a memory write through the existing asynchronous ingestion pipeline:
+
+```bash
+curl \
+  -H "Authorization: Bearer $BRAINAPI_PAT" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: hermes-session-42-message-7" \
+  https://HOST/brains/aux-research/agent/memory \
+  -d '{"text":"The customer prefers annual billing.","metadata":{"source":"hermes","session_id":"42"}}'
+```
+
+Agent memory metadata is forwarded through the ingestion model's existing
+`meta_keys` support. Arbitrary metadata is retained as source metadata where the
+configured ingestion backend already supports it; no separate metadata store is
+created. `Idempotency-Key` stabilizes the returned task identifier, but it is not
+a distributed duplicate-content guarantee—retries after a successfully queued
+request may still process the content again.
+
+The agent schema is available at
+`/brains/aux-research/agent/openapi.json`, and machine-readable capabilities at
+`/brains/aux-research/agent/capabilities`.
+
+BrainAPI's existing stateless Streamable HTTP MCP server remains one process on
+the MCP port. The bundled reverse proxy maps the workspace-aware transport at
+`https://HOST/brains/aux-research/mcp` to that server. The tools are
+`memory_search`, `memory_context`, `memory_store`, `memory_observe`,
+`memory_neighbors`, `memory_entity`, and `memory_task_status`; workspace scope is
+derived from the URL and is not a tool argument. Direct development connections
+without the reverse proxy use the MCP server port with the same path, for example
+`http://localhost:8001/brains/aux-research/mcp`.
+
+The workspace endpoint uses a semantic-only MCP registry. Legacy raw MCP tools
+remain available at `/mcp` for backward compatibility, but they are not listed
+or callable through `/brains/{workspace_slug}/mcp`. Plugins likewise appear in
+the workspace registry only when they explicitly use the workspace-safe MCP
+registration contract.
+
 Log in to the console with the `BRAINPAT_TOKEN` generated during setup. That's it — you have a working brain.
 
 ### TUI commands

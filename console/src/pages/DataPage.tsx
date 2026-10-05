@@ -19,12 +19,13 @@ import {
   TabsList,
   TabsTrigger,
 } from "lumen-ui-kit";
-import { apiFetch } from "../lib/api";
+import { useWorkspace } from "../workspaces/WorkspaceProvider";
 import { JsonInspector, InlineField, Workbench } from "../components/Workbench";
 
 type Tab = "chunks" | "structured";
 
 export default function DataPage() {
+  const { apiFetch, activeWorkspace } = useWorkspace();
   const [tab, setTab] = useState<Tab>("chunks");
   const [query, setQuery] = useState("");
   const [skip, setSkip] = useState(0);
@@ -43,7 +44,7 @@ export default function DataPage() {
         .then((res) => setTypes(res.types ?? []))
         .catch(() => setTypes([]));
     }
-  }, [tab]);
+  }, [apiFetch, activeWorkspace?.brain_id, tab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,7 +94,7 @@ export default function DataPage() {
     return () => {
       cancelled = true;
     };
-  }, [tab, query, skip, limit, selectedType]);
+  }, [apiFetch, activeWorkspace?.brain_id, tab, query, skip, limit, selectedType]);
 
   const start = total === 0 ? 0 : skip + 1;
   const end = Math.min(skip + limit, total);

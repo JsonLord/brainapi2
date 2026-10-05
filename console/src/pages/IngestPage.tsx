@@ -1,13 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import {
   Alert,
   Button,
-  ClipboardCopy,
   Field,
   FieldLabel,
-  List,
-  ListItem,
   SectionBand,
   SectionBandContent,
   SectionBandDescription,
@@ -17,41 +14,19 @@ import {
   SectionStack,
   Stack,
   Textarea,
-  TextField,
 } from "lumen-ui-kit";
-import {
-  apiFetch,
-  fetchBrainsList,
-  getSession,
-  type BrainRecord,
-} from "../lib/api";
 import { PageFrame } from "../components/Workbench";
+import { useWorkspace } from "../workspaces/WorkspaceProvider";
+import { workspacePath } from "../workspaces/workspaceRoutes";
 
 export default function IngestPage() {
-  const session = getSession();
+  const { apiFetch, activeWorkspace } = useWorkspace();
   const [text, setText] = useState("");
   const [ingesting, setIngesting] = useState(false);
   const [ingestResult, setIngestResult] = useState<string | null>(null);
   const [ingestError, setIngestError] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
 
-  const [brains, setBrains] = useState<BrainRecord[]>([]);
-  const [brainsError, setBrainsError] = useState<string | null>(null);
-  const [newBrainId, setNewBrainId] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [createdPat, setCreatedPat] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!getSession()?.isSystemPat) {
-      setBrainsError("Brain list requires system BRAINPAT_TOKEN");
-      return;
-    }
-    fetchBrainsList()
-      .then(setBrains)
-      .catch(() =>
-        setBrainsError("Brain list requires system BRAINPAT_TOKEN"),
-      );
-  }, []);
 
   async function handleIngest(e: React.FormEvent) {
     e.preventDefault();
@@ -79,28 +54,6 @@ export default function IngestPage() {
     }
   }
 
-  async function handleCreateBrain(e: React.FormEvent) {
-    e.preventDefault();
-    setCreating(true);
-    setBrainsError(null);
-    setCreatedPat(null);
-    try {
-      const res = await apiFetch<BrainRecord>("/system/brains", {
-        method: "POST",
-        body: JSON.stringify({ brain_id: newBrainId.trim() }),
-      });
-      setCreatedPat(res.pat ?? null);
-      setBrains((prev) => [...prev, res]);
-      setNewBrainId("");
-    } catch (err) {
-      setBrainsError(
-        err instanceof Error ? err.message : "Failed to create brain",
-      );
-    } finally {
-      setCreating(false);
-    }
-  }
-
   return (
     <PageFrame className="overflow-auto">
       <SectionStack className="max-w-4xl border border-lumen-border">
@@ -111,7 +64,7 @@ export default function IngestPage() {
             <SectionBandDescription>
               Submitting into brain{" "}
               <span className="font-mono text-lumen-foreground">
-                {session?.brainId}
+                {activeWorkspace?.brain_id}
               </span>
               . Completed jobs appear under Tasks.
             </SectionBandDescription>
@@ -153,7 +106,7 @@ export default function IngestPage() {
                         {" "}
                         —{" "}
                         <RouterLink
-                          to="/tasks"
+                          to={workspacePath(activeWorkspace!.slug, "tasks")}
                           className="underline underline-offset-2"
                         >
                           View task {taskId}
@@ -172,7 +125,7 @@ export default function IngestPage() {
                     Ingest text
                   </Button>
                   <RouterLink
-                    to="/tasks"
+                    to={workspacePath(activeWorkspace!.slug, "tasks")}
                     className="inline-flex h-11 items-center border border-lumen-control-border bg-lumen-action-secondary px-4 text-sm font-medium text-lumen-on-action-secondary"
                   >
                     Open tasks
@@ -183,72 +136,6 @@ export default function IngestPage() {
           </SectionBandContent>
         </SectionBand>
 
-        <SectionBand tone="muted">
-          <SectionBandHeader>
-            <SectionBandEyebrow>Administration</SectionBandEyebrow>
-            <SectionBandTitle>Brains</SectionBandTitle>
-            <SectionBandDescription>
-              Creating brains requires the system BRAINPAT_TOKEN from your
-              environment.
-            </SectionBandDescription>
-          </SectionBandHeader>
-          <SectionBandContent>
-            <Stack gap="md">
-              {brainsError && (
-                <Alert variant="warning" title="Brains unavailable">
-                  {brainsError}
-                </Alert>
-              )}
-
-              {brains.length > 0 && (
-                <List>
-                  {brains.map((b) => (
-                    <ListItem key={b.id ?? b.name_key}>
-                      <span className="font-mono text-sm text-lumen-foreground">
-                        {b.name_key}
-                      </span>
-                      {b.pat ? (
-                        <span className="ml-2 font-mono text-xs text-lumen-muted-foreground">
-                          pat {b.pat.slice(0, 8)}…
-                        </span>
-                      ) : null}
-                    </ListItem>
-                  ))}
-                </List>
-              )}
-
-              <form
-                onSubmit={handleCreateBrain}
-                className="flex flex-wrap items-end gap-2"
-              >
-                <TextField
-                  id="new-brain-id"
-                  label="New brain id"
-                  value={newBrainId}
-                  onChange={(e) => setNewBrainId(e.target.value)}
-                  pattern="[a-zA-Z][a-zA-Z0-9]*"
-                  placeholder="newBrainId"
-                  containerClassName="min-w-[14rem] flex-1"
-                />
-                <Button
-                  type="submit"
-                  variant="secondary"
-                  disabled={!newBrainId.trim()}
-                  isPending={creating}
-                  pendingLabel="Creating…"
-                >
-                  Create brain
-                </Button>
-              </form>
-
-              {createdPat && (
-                <Alert variant="success" title="New brain PAT (copy now)">
-                  <ClipboardCopy value={createdPat} label="Copy PAT" />
-                </Alert>
-              )}
-            </Stack>
-          </SectionBandContent>
-        </SectionBand>
       </SectionStack>
     </PageFrame>
   );

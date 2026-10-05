@@ -14,7 +14,8 @@ import {
   TableRow,
 } from "lumen-ui-kit";
 import { RestartIcon, Icon } from "lumen-ui-kit/icons";
-import { apiFetch } from "../lib/api";
+import { useWorkspace } from "../workspaces/WorkspaceProvider";
+import { workspacePath } from "../workspaces/workspaceRoutes";
 import { JsonInspector, Workbench } from "../components/Workbench";
 
 interface TaskItem {
@@ -44,6 +45,7 @@ function statusFor(status: string): "success" | "danger" | "warning" | "neutral"
 }
 
 export default function TasksPage() {
+  const { apiFetch, activeWorkspace } = useWorkspace();
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +71,7 @@ export default function TasksPage() {
       if (hasActive || tasks.length === 0) loadTasks();
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [apiFetch, activeWorkspace?.brain_id]);
 
   async function selectTask(taskId: string) {
     setSelectedId(taskId);
@@ -128,7 +130,7 @@ export default function TasksPage() {
             description="Ingest some data to create processing tasks."
           >
             <RouterLink
-              to="/ingest"
+              to={workspacePath(activeWorkspace!.slug, "ingest")}
               className="text-sm font-medium text-lumen-foreground underline underline-offset-2"
             >
               Go to Ingest

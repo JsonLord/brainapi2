@@ -10,7 +10,7 @@ Modified By: Christian Nonis <alch.infoemail@gmail.com>
 
 from typing import List, Literal, Tuple
 from src.adapters.interfaces.data import DataClient, SearchResult
-from src.constants.data import Brain, KGChanges, Observation, StructuredData, TextChunk
+from src.constants.data import Brain, KGChanges, Observation, StructuredData, TextChunk, Workspace
 
 
 class DataAdapter:
@@ -118,6 +118,21 @@ class DataAdapter:
         Get the list of brains from the data client.
         """
         return self.data.get_brains_list()
+
+    def create_workspace(self, workspace: Workspace) -> Workspace:
+        return self.data.create_workspace(workspace)
+
+    def get_workspace(self, slug: str) -> Workspace | None:
+        return self.data.get_workspace(slug)
+
+    def get_workspace_by_brain_id(self, brain_id: str) -> Workspace | None:
+        return self.data.get_workspace_by_brain_id(brain_id)
+
+    def get_workspaces(self) -> list[Workspace]:
+        return self.data.get_workspaces()
+
+    def update_workspace(self, workspace: Workspace) -> Workspace:
+        return self.data.update_workspace(workspace)
 
     def save_kg_changes(
         self, kg_changes: KGChanges, brain_id: str = "default"
