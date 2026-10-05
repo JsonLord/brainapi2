@@ -10,11 +10,13 @@ Modified By: Christian Nonis <alch.infoemail@gmail.com>
 
 from typing import List, Tuple
 from pymongo import MongoClient as PyMongoClient
+from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 from pymongo.database import Database
 from pymongo.collection import Collection
 from src.adapters.interfaces.data import DataClient, SearchResult
 from src.config import config
-from src.constants.data import Brain, KGChanges, Observation, StructuredData, TextChunk
+from src.constants.data import Brain, KGChanges, Observation, StructuredData, TextChunk, Workspace
 
 
 class MongoClient(DataClient):
@@ -173,6 +175,58 @@ class MongoClient(DataClient):
             )
             for result in result
         ]
+
+    def create_workspace(self, workspace: Workspace) -> Workspace:
+        collection = self.get_collection(
+            "workspaces", config.mongo.system_database
+        )
+        collection.create_index("slug", unique=True)
+        collection.create_index("brain_id", unique=True)
+        document = workspace.model_dump(mode="json", exclude={"id"})
+        try:
+            result = collection.insert_one(document)
+        except DuplicateKeyError:
+            existing = self.get_workspace_by_brain_id(workspace.brain_id)
+            if existing and existing.slug == workspace.slug:
+                return existing
+            raise
+        workspace.id = str(result.inserted_id)
+        return workspace
+
+    def _workspace(self, result) -> Workspace | None:
+        if not result:
+            return None
+        result = dict(result)
+        result["id"] = str(result.pop("_id"))
+        return Workspace.model_validate(result)
+
+    def get_workspace(self, slug: str) -> Workspace | None:
+        collection = self.get_collection(
+            "workspaces", config.mongo.system_database
+        )
+        return self._workspace(collection.find_one({"slug": slug}))
+
+    def get_workspace_by_brain_id(self, brain_id: str) -> Workspace | None:
+        collection = self.get_collection(
+            "workspaces", config.mongo.system_database
+        )
+        return self._workspace(collection.find_one({"brain_id": brain_id}))
+
+    def get_workspaces(self) -> list[Workspace]:
+        collection = self.get_collection(
+            "workspaces", config.mongo.system_database
+        )
+        return [self._workspace(item) for item in collection.find()]
+
+    def update_workspace(self, workspace: Workspace) -> Workspace:
+        collection = self.get_collection(
+            "workspaces", config.mongo.system_database
+        )
+        collection.replace_one(
+            {"_id": ObjectId(workspace.id)},
+            workspace.model_dump(mode="json", exclude={"id"}),
+        )
+        return workspace
 
     def clear_brain_data(self, brain_id: str) -> None:
         protected = {

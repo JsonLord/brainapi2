@@ -129,6 +129,7 @@ def set_ingestion_task_status(
         **existing,
         "status": status,
         "task_id": task_id,
+        "brain_id": brain_id,
     }
     if stage is not None:
         payload["stage"] = stage
@@ -764,14 +765,19 @@ def ingest_data(self, args: dict):
         return parent_task_id
 
     except Exception as e:
-        brain_id = payload.brain_id if payload else args.get("brain_id", "default")
-        set_ingestion_task_status(
-            self.request.id,
-            brain_id,
-            "failed",
-            stage="failed",
-            error=str(e),
-        )
+        # A malformed task must never be attributed to an unrelated default
+        # brain.  Hosted and legacy ingestion both serialize brain_id into the
+        # task payload before it reaches the worker; if it is absent there is
+        # no safe namespace in which to publish failure state.
+        brain_id = payload.brain_id if payload else args.get("brain_id")
+        if brain_id:
+            set_ingestion_task_status(
+                self.request.id,
+                brain_id,
+                "failed",
+                stage="failed",
+                error=str(e),
+            )
         raise
 
 
@@ -779,7 +785,7 @@ def ingest_data(self, args: dict):
 def finalize_ingestion_task(
     self,
     parent_task_id: str,
-    brain_id: str = "default",
+    brain_id: str,
     status: str = "completed",
     error: Optional[str] = None,
     errors: Optional[list] = None,
@@ -1460,14 +1466,15 @@ def ingest_structured_data(self, args: dict):
         return parent_task_id
 
     except Exception as e:
-        brain_id = payload.brain_id if payload else args.get("brain_id", "default")
-        set_ingestion_task_status(
-            self.request.id,
-            brain_id,
-            "failed",
-            stage="failed",
-            error=str(e),
-        )
+        brain_id = payload.brain_id if payload else args.get("brain_id")
+        if brain_id:
+            set_ingestion_task_status(
+                self.request.id,
+                brain_id,
+                "failed",
+                stage="failed",
+                error=str(e),
+            )
         raise
 
 
@@ -1475,7 +1482,7 @@ def ingest_structured_data(self, args: dict):
 def consolidate_graph_async(
     self,
     session_id: str,
-    brain_id: str = "default",
+    brain_id: str,
     ingestion_session_id: str = None,
     relationships: Optional[List[dict]] = None,
 ):
@@ -1579,7 +1586,13 @@ def ingest_file(self, content_b64: str, filename: str, brain_id: str):
 
     cache_adapter.set(
         key=f"task:{self.request.id}",
-        value=json.dumps({"status": "started", "task_id": self.request.id}),
+        value=json.dumps(
+            {
+                "status": "started",
+                "task_id": self.request.id,
+                "brain_id": brain_id,
+            }
+        ),
         brain_id=brain_id,
         expires_in=3600 * 24 * 7,
     )
@@ -1611,7 +1624,13 @@ def ingest_file(self, content_b64: str, filename: str, brain_id: str):
     for page_task_id in task_ids:
         cache_adapter.set(
             key=f"task:{page_task_id}",
-            value=json.dumps({"status": "queued", "task_id": page_task_id}),
+            value=json.dumps(
+                {
+                    "status": "queued",
+                    "task_id": page_task_id,
+                    "brain_id": brain_id,
+                }
+            ),
             brain_id=brain_id,
             expires_in=3600 * 24 * 7,
         )
@@ -1640,6 +1659,7 @@ def ingest_file(self, content_b64: str, filename: str, brain_id: str):
                 "status": "completed",
                 "task_id": self.request.id,
                 "task_ids": task_ids,
+                "brain_id": brain_id,
             }
         ),
         brain_id=brain_id,
