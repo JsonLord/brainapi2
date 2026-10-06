@@ -54,7 +54,9 @@ async def ingest_data(
     data.brain_id = brain_id
     print("[Ingest] received task for brain: ", brain_id)
 
-    flow_task_identifier = request.headers.get("Task-Identifier")
+    flow_task_identifier = request.headers.get("Task-Identifier") or request.headers.get(
+        "Idempotency-Key"
+    )
     task_id = flow_task_identifier or str(uuid4())
 
     set_ingestion_task_status(task_id, data.brain_id, "queued", stage="queued")

@@ -31,6 +31,13 @@ from src.core.instances import (
 from src.services.mcp.oauth_provider import BrainapiMcpOAuthProvider
 from src.services.mcp.utils import guard_brainpat
 from src.utils.vector_search import VectorSearchFacade
+from src.services.brain_context import brain_context_var
+from src.services.agent_memory import (
+    memory_context as agent_memory_context,
+    memory_search as agent_memory_search,
+    memory_store as agent_memory_store,
+    memory_task_status as agent_memory_task_status,
+)
 
 auth_token_var: ContextVar[str | None] = ContextVar("auth_token", default=None)
 vector_search = VectorSearchFacade(vector_store_adapter)
@@ -61,16 +68,22 @@ if _oauth_issuer:
         refresh_token_ttl_seconds=_refresh_ttl,
         auth_code_ttl_seconds=_code_ttl,
     )
-    _doc_url = os.getenv("MCP_OAUTH_SERVICE_DOCUMENTATION_URL", "").strip()
-    mcp = FastMCP(
-        "brainapi-mcp",
+
+
+def _new_mcp_server(name: str) -> FastMCP:
+    """Build an MCP registry with the deployment's existing auth settings."""
+    if not oauth_provider:
+        return FastMCP(name, stateless_http=True, host="0.0.0.0")
+    doc_url = os.getenv("MCP_OAUTH_SERVICE_DOCUMENTATION_URL", "").strip()
+    return FastMCP(
+        name,
         stateless_http=True,
         host="0.0.0.0",
         auth_server_provider=oauth_provider,
         auth=AuthSettings(
             issuer_url=AnyHttpUrl(_oauth_issuer),
             resource_server_url=AnyHttpUrl(_oauth_resource),
-            service_documentation_url=AnyHttpUrl(_doc_url) if _doc_url else None,
+            service_documentation_url=AnyHttpUrl(doc_url) if doc_url else None,
             client_registration_options=ClientRegistrationOptions(
                 enabled=True,
                 valid_scopes=_oauth_scopes,
@@ -78,8 +91,13 @@ if _oauth_issuer:
             ),
         ),
     )
-else:
-    mcp = FastMCP("brainapi-mcp", stateless_http=True, host="0.0.0.0")
+
+
+mcp = _new_mcp_server("brainapi-mcp")
+# A separate registry prevents legacy tools that accept a caller-supplied
+# brain_id from appearing at the path-authoritative workspace MCP endpoint.
+# Both registries remain in the same ASGI process and share the same adapters.
+workspace_mcp = _new_mcp_server("brainapi-workspace-memory")
 
 
 if oauth_provider:
@@ -319,7 +337,7 @@ def _list_brains_sync() -> list[str] | str:
     brain_key = guard_brainpat(auth_token_var.get())
     if not brain_key:
         return "Unauthorized"
-    if type(brain_key) == str:
+    if isinstance(brain_key, str):
         return [brain_key]
     brains = data_adapter.get_brains_list()
     return [brain.name_key for brain in brains]
@@ -331,3 +349,80 @@ async def list_brains() -> list[str] | str:
     This tool lists all the brains/memory stores available
     """
     return await asyncio.to_thread(_list_brains_sync)
+
+
+def _workspace_context():
+    context = brain_context_var.get()
+    if context is None:
+        raise ValueError("Use the workspace MCP endpoint /brains/{slug}/mcp")
+    return context
+
+
+@workspace_mcp.tool()
+async def memory_search(query: str, limit: int = 10) -> dict:
+    context = _workspace_context()
+    return {
+        "workspace": context.workspace_slug,
+        "results": await agent_memory_search(query, limit, context.brain_id),
+    }
+
+
+@workspace_mcp.tool()
+async def memory_context(query: str, max_tokens: int = 4000) -> dict:
+    context = _workspace_context()
+    result = await agent_memory_context(query, max_tokens, context.brain_id)
+    return {**result, "workspace": context.workspace_slug}
+
+
+@workspace_mcp.tool()
+async def memory_store(
+    text: str, metadata: dict | None = None, idempotency_key: str | None = None
+) -> dict:
+    context = _workspace_context()
+    request = type(
+        "MCPMemoryRequest",
+        (),
+        {"headers": {"Idempotency-Key": idempotency_key} if idempotency_key else {}},
+    )()
+    result = await agent_memory_store(
+        text=text,
+        metadata=metadata or {},
+        brain_id=context.brain_id,
+        request=request,
+    )
+    return {
+        "workspace": context.workspace_slug,
+        "status": "queued",
+        "task_id": result["task_id"],
+    }
+
+
+@workspace_mcp.tool()
+async def memory_observe(text: str, metadata: dict | None = None) -> dict:
+    """Queue text through the canonical pipeline, which creates observations."""
+    return await memory_store(text, {**(metadata or {}), "memory_kind": "observation"})
+
+
+@workspace_mcp.tool()
+async def memory_neighbors(
+    entity_uuid: str, limit: int = 10
+) -> Any:
+    context = _workspace_context()
+    from src.services.agent_memory import memory_neighbors as agent_memory_neighbors
+
+    return await agent_memory_neighbors(entity_uuid, limit, context.brain_id)
+
+
+@workspace_mcp.tool()
+async def memory_entity(target: str, max_depth: int = 3) -> Any:
+    context = _workspace_context()
+    from src.services.agent_memory import memory_entity as agent_memory_entity
+
+    return await agent_memory_entity(target, max_depth, context.brain_id)
+
+
+@workspace_mcp.tool()
+async def memory_task_status(task_id: str) -> dict:
+    context = _workspace_context()
+    result = await agent_memory_task_status(task_id, context.brain_id)
+    return {**result, "workspace": context.workspace_slug}

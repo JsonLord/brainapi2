@@ -24,6 +24,7 @@ from src.constants.data import (
     Observation,
     StructuredData,
     TextChunk,
+    Workspace,
 )
 
 from ._naming import (
@@ -47,6 +48,13 @@ CREATE TABLE IF NOT EXISTS data_brains (
     id TEXT PRIMARY KEY,
     name_key TEXT UNIQUE NOT NULL,
     pat TEXT NOT NULL,
+    document JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS data_workspaces (
+    id TEXT PRIMARY KEY,
+    brain_id TEXT UNIQUE NOT NULL,
+    slug TEXT UNIQUE NOT NULL,
     document JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -593,6 +601,48 @@ class PostgreSQLDataClient(DataClient):
                 by_key[suffix] = Brain(name_key=suffix)
 
         return sorted(by_key.values(), key=lambda brain: brain.name_key)
+
+    def create_workspace(self, workspace: Workspace) -> Workspace:
+        with self._system_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO data_workspaces (id, brain_id, slug, document) VALUES (%s, %s, %s, %s::jsonb) ON CONFLICT (brain_id) DO NOTHING",
+                    (workspace.id, workspace.brain_id, workspace.slug, json.dumps(workspace.model_dump(mode="json"))),
+                )
+            conn.commit()
+        return self.get_workspace_by_brain_id(workspace.brain_id) or workspace
+
+    def _get_workspace(self, column: str, value: str) -> Workspace | None:
+        if column not in {"slug", "brain_id"}:
+            raise ValueError("invalid workspace lookup")
+        with self._system_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(f"SELECT document FROM data_workspaces WHERE {column} = %s", (value,))
+                row = cur.fetchone()
+        return Workspace.model_validate(row["document"]) if row else None
+
+    def get_workspace(self, slug: str) -> Workspace | None:
+        return self._get_workspace("slug", slug)
+
+    def get_workspace_by_brain_id(self, brain_id: str) -> Workspace | None:
+        return self._get_workspace("brain_id", brain_id)
+
+    def get_workspaces(self) -> list[Workspace]:
+        with self._system_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT document FROM data_workspaces ORDER BY created_at")
+                rows = cur.fetchall()
+        return [Workspace.model_validate(row["document"]) for row in rows]
+
+    def update_workspace(self, workspace: Workspace) -> Workspace:
+        with self._system_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE data_workspaces SET document = %s::jsonb WHERE id = %s",
+                    (json.dumps(workspace.model_dump(mode="json")), workspace.id),
+                )
+            conn.commit()
+        return workspace
 
     def clear_brain_data(self, brain_id: str) -> None:
         clear_brain_database(brain_id)

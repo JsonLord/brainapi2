@@ -1,5 +1,7 @@
 import logging
 import os
+import re
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,9 +14,20 @@ from starlette.routing import Mount, Route
 _project_root = Path(__file__).resolve().parent.parent.parent.parent
 dotenv.load_dotenv(_project_root / ".env")
 
-from src.lib.tracing.middleware import TraceMiddleware
-from src.lib.tracing.runtime import start_runtime_monitoring, stop_runtime_monitoring
-from src.services.mcp.main import auth_token_var, mcp, oauth_provider
+from src.lib.tracing.middleware import TraceMiddleware  # noqa: E402
+from src.lib.tracing.runtime import (  # noqa: E402
+    start_runtime_monitoring,
+    stop_runtime_monitoring,
+)
+from src.services.mcp.main import (  # noqa: E402
+    auth_token_var,
+    mcp,
+    oauth_provider,
+    workspace_mcp,
+)
+from src.services.brain_context import BrainContext, brain_context_var  # noqa: E402
+from src.services.data.main import data_adapter  # noqa: E402
+from src.services.mcp.utils import guard_brainpat  # noqa: E402
 
 PLUGINS_DIR = Path(os.getenv("PLUGINS_DIR", str(_project_root / "plugins")))
 
@@ -25,7 +38,7 @@ def _load_mcp_plugins():
     from src.core.plugins.context import PluginContext
     from src.core.plugins.loader import PluginLoader
 
-    ctx = PluginContext.from_mcp(mcp)
+    ctx = PluginContext.from_mcp(mcp, workspace_mcp=workspace_mcp)
     loader = PluginLoader(plugins_dir=PLUGINS_DIR, context=ctx)
     results = loader.load_all()
     _log_plugin_banner(loader, results)
@@ -89,16 +102,18 @@ def _log_plugin_banner(loader, results: dict[str, bool]):
 _load_mcp_plugins()
 
 _mcp_app = mcp.streamable_http_app()
+_workspace_mcp_app = workspace_mcp.streamable_http_app()
 
 
 @asynccontextmanager
 async def _lifespan(app):
     start_runtime_monitoring("brainapi-mcp")
     async with _mcp_app.router.lifespan_context(app):
-        try:
-            yield
-        finally:
-            stop_runtime_monitoring("brainapi-mcp")
+        async with _workspace_mcp_app.router.lifespan_context(app):
+            try:
+                yield
+            finally:
+                stop_runtime_monitoring("brainapi-mcp")
 
 
 class AuthContextMiddleware:
@@ -106,6 +121,16 @@ class AuthContextMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        context_token = None
+        auth_context_token = None
+
+        async def reject(status_code: int, detail: str):
+            nonlocal auth_context_token
+            if auth_context_token is not None:
+                auth_token_var.reset(auth_context_token)
+                auth_context_token = None
+            await _json_error(send, status_code, detail)
+
         if scope["type"] in ("http", "websocket"):
             raw_headers = list(scope.get("headers", []))
             headers = dict(raw_headers)
@@ -137,8 +162,50 @@ class AuthContextMiddleware:
                         token = pat if pat else bearer
                     else:
                         token = bearer
-            auth_token_var.set(token)
-        await self.app(scope, receive, send)
+            auth_context_token = auth_token_var.set(token)
+            match = re.match(
+                r"^/brains/(?P<slug>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)/mcp(?:/|$)",
+                scope.get("path", ""),
+            )
+            if match:
+                workspace = data_adapter.get_workspace(match.group("slug"))
+                if workspace is None:
+                    return await reject(404, "Workspace not found")
+                if workspace.archived:
+                    return await reject(410, "Workspace is archived")
+                access = guard_brainpat(token)
+                if not access:
+                    return await reject(401, "Invalid BrainPAT")
+                if access is not True and access != workspace.brain_id:
+                    return await reject(403, "PAT cannot access this workspace")
+                context_token = brain_context_var.set(
+                    BrainContext(
+                        workspace_slug=workspace.slug,
+                        brain_id=workspace.brain_id,
+                        auth_type="system" if access is True else "brain",
+                    )
+                )
+                suffix = scope["path"][match.end() :]
+                scope = {**scope, "path": f"/workspace/mcp{suffix}"}
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            if context_token is not None:
+                brain_context_var.reset(context_token)
+            if auth_context_token is not None:
+                auth_token_var.reset(auth_context_token)
+
+
+async def _json_error(send, status_code: int, detail: str):
+    body = json.dumps({"detail": detail}).encode("utf-8")
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status_code,
+            "headers": [(b"content-type", b"application/json")],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
 
 
 async def _health(_request):
@@ -163,7 +230,8 @@ _custom_routes = [
     Route("/mcp/info", _mcp_info, methods=["GET"]),
 ]
 app = Starlette(
-    routes=_custom_routes + [Mount("/", app=_mcp_app)],
+    routes=_custom_routes
+    + [Mount("/workspace", app=_workspace_mcp_app), Mount("/", app=_mcp_app)],
     middleware=[
         Middleware(TraceMiddleware, service_name="brainapi-mcp"),
         Middleware(AuthContextMiddleware),

@@ -27,7 +27,7 @@ import {
   type GraphSelection,
 } from "lumen-ui-kit/graph";
 import { RestartIcon, Icon } from "lumen-ui-kit/icons";
-import { apiFetch, getSession } from "../lib/api";
+import { useWorkspace } from "../workspaces/WorkspaceProvider";
 import {
   filterRelationshipsByEntities,
   filterRelationshipsByLabel,
@@ -181,6 +181,7 @@ function asEntityOrFallback(
 }
 
 export default function GraphPage() {
+  const { apiFetch, activeWorkspace } = useWorkspace();
   const [entities, setEntities] = useState<GraphEntity[]>([]);
   const [relationships, setRelationships] = useState<GraphRelationship[]>([]);
   const [limit, setLimit] = useState(250);
@@ -193,7 +194,7 @@ export default function GraphPage() {
   const [filterState, setFilterState] =
     useState<GraphFilterState>(EMPTY_FILTERS);
   const [selection, setSelection] = useState<GraphSelection>(null);
-  const activeBrainId = getSession()?.brainId ?? "default";
+  const activeBrainId = activeWorkspace?.brain_id ?? "";
 
   const performance = useMemo<GraphPerformanceOptions | false | undefined>(
     () => (groupingEnabled ? undefined : { clustering: false }),
@@ -239,7 +240,7 @@ export default function GraphPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [apiFetch, activeWorkspace?.brain_id]);
 
   useEffect(() => {
     loadGraph(limit);
