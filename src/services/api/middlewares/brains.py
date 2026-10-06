@@ -10,6 +10,7 @@ Modified By: Christian Nonis <alch.infoemail@gmail.com>
 
 import json
 import os
+import re
 from email import policy
 from email.parser import BytesParser
 
@@ -21,6 +22,7 @@ from src.services.api.console_static import is_console_path
 from src.services.api.errors import error_response
 from src.services.data.main import data_adapter
 from src.services.kg_agent.main import cache_adapter
+from src.services.workspaces import WorkspaceScopeConflictError, resolve_workspace_scope
 
 
 def _brain_id_from_multipart(body: bytes, content_type: str) -> str | None:
@@ -67,10 +69,14 @@ class BrainMiddleware(BaseHTTPMiddleware):
             # touching a backing store before it can return a structured 401.
             return await call_next(request)
 
-        async def _get_brain_id():
-            brain_id = None
+        workspace_match = re.match(
+            r"^/brains/(?P<slug>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)/(?:api|agent|mcp)(?:/|$)",
+            request.url.path,
+        )
 
-            brain_id = request.headers.get("X-Brain-ID")
+        async def _get_brain_id():
+            header_brain_id = request.headers.get("X-Brain-ID")
+            brain_id = header_brain_id
 
             if brain_id:
                 brain_id = brain_id.rstrip()
@@ -80,22 +86,27 @@ class BrainMiddleware(BaseHTTPMiddleware):
                 if brain_id:
                     brain_id = brain_id.rstrip()
 
-            if brain_id is None and request.method in ("POST", "PUT", "PATCH"):
+            body_brain_id = None
+            if (brain_id is None or workspace_match) and request.method in (
+                "POST",
+                "PUT",
+                "PATCH",
+            ):
                 content_type = request.headers.get("content-type", "") or ""
                 body = await request.body()
                 if "application/json" in content_type and body:
                     try:
                         body_data = json.loads(body)
                         if isinstance(body_data, dict):
-                            brain_id = body_data.get("brain_id")
-                            if brain_id:
-                                brain_id = brain_id.rstrip()
+                            body_brain_id = body_data.get("brain_id")
+                            if body_brain_id:
+                                body_brain_id = body_brain_id.rstrip()
                     except (json.JSONDecodeError, ValueError):
                         pass
                 elif "multipart/form-data" in content_type and body:
                     form_brain_id = _brain_id_from_multipart(body, content_type)
                     if form_brain_id:
-                        brain_id = form_brain_id
+                        body_brain_id = form_brain_id
 
                 body_sent = [False]
 
@@ -106,11 +117,49 @@ class BrainMiddleware(BaseHTTPMiddleware):
                     return {"type": "http.request", "body": b"", "more_body": False}
 
                 request._receive = receive
+            if brain_id is None and body_brain_id:
+                brain_id = body_brain_id
+
+            if workspace_match:
+                slug = workspace_match.group("slug")
+                try:
+                    workspace = data_adapter.get_workspace(slug)
+                except Exception:
+                    return None, error_response(
+                        request, status_code=503, detail="Workspace store unavailable"
+                    )
+                if workspace is None:
+                    return None, error_response(
+                        request, status_code=404, detail="Workspace not found"
+                    )
+                if workspace.archived:
+                    return None, error_response(
+                        request, status_code=410, detail="Workspace is archived"
+                    )
+                try:
+                    brain_id = resolve_workspace_scope(
+                        workspace,
+                        header_brain_id=header_brain_id,
+                        query_brain_id=request.query_params.get("brain_id"),
+                        body_brain_id=body_brain_id,
+                    )
+                except WorkspaceScopeConflictError:
+                    return None, error_response(
+                        request,
+                        status_code=409,
+                        detail="Workspace URL conflicts with an explicit brain scope.",
+                        code="BRAIN_SCOPE_CONFLICT",
+                        message="The workspace URL is authoritative.",
+                        resolution="Remove the conflicting X-Brain-ID or brain_id value.",
+                    )
+                request.state.workspace_slug = slug
             request.state.brain_id = brain_id
-            return brain_id
+            return brain_id, None
 
         # Variables ----------------------------------------------
-        brain_id = await _get_brain_id()
+        brain_id, scope_error = await _get_brain_id()
+        if scope_error is not None:
+            return scope_error
         brain_creation_allowed = os.getenv("BRAIN_CREATION_ALLOWED") == "true"
         default_brain_fallback = os.getenv("DEFAULT_BRAIN_FALLBACK") == "true"
 
@@ -128,14 +177,16 @@ class BrainMiddleware(BaseHTTPMiddleware):
                 message="The system brain is reserved.",
                 resolution="Select a non-system application brain.",
             )
-        if brain_id and not brain_id.isalnum():
+        if brain_id and not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", brain_id
+        ):
             return error_response(
                 request,
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Brain ID must be alphanumeric.",
+                detail="Brain ID contains unsupported characters.",
                 code="BRAIN_ID_INVALID",
                 message="The brain identifier is invalid.",
-                resolution="Use an alphanumeric X-Brain-ID value.",
+                resolution="Use letters, digits, hyphens, or underscores.",
                 extra={"value": brain_id},
             )
 

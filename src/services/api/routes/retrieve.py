@@ -151,6 +151,7 @@ async def get_neighbors_ai_mode(
         ...,
         description="The request body for the retrieve neighbors AI mode endpoint.",
     ),
+    brain_id: str = Depends(get_brain_id),
 ):
     """
     Retrieve neighboring entities using AI-mode identification parameters.
@@ -165,7 +166,10 @@ async def get_neighbors_ai_mode(
         list: Neighboring entities that match the AI-mode identification and search criteria.
     """
     return await retrieve_neighbors_ai_mode_controller(
-        request.identification_params, request.looking_for, request.limit
+        request.identification_params,
+        request.looking_for,
+        request.limit,
+        brain_id,
     )
 
 

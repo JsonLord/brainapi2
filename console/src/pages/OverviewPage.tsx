@@ -14,7 +14,8 @@ import {
   StatValue,
   StatusIndicator,
 } from "lumen-ui-kit";
-import { apiFetch, getSession } from "../lib/api";
+import { useWorkspace } from "../workspaces/WorkspaceProvider";
+import { workspacePath } from "../workspaces/workspaceRoutes";
 import { PageFrame } from "../components/Workbench";
 
 interface StatCard {
@@ -44,7 +45,7 @@ const shortcuts = [
 ];
 
 export default function OverviewPage() {
-  const session = getSession();
+  const { apiFetch, activeWorkspace } = useWorkspace();
   const [stats, setStats] = useState<StatCard[]>([
     { label: "Entities", value: "—", loading: true, failed: false, to: "/graph" },
     {
@@ -180,7 +181,7 @@ export default function OverviewPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [apiFetch, activeWorkspace?.brain_id]);
 
   const healthy = stats.filter((s) => !s.loading && !s.failed).length;
   const failed = stats.filter((s) => s.failed).length;
@@ -195,9 +196,9 @@ export default function OverviewPage() {
             <SectionBandDescription>
               Live inventory for{" "}
               <span className="font-mono text-lumen-foreground">
-                {session?.brainId}
+                {activeWorkspace?.brain_id}
               </span>{" "}
-              on {session?.apiBaseUrl}
+              on {activeWorkspace?.api_base_url}
             </SectionBandDescription>
           </SectionBandHeader>
           <SectionBandContent>
@@ -215,7 +216,7 @@ export default function OverviewPage() {
                 </StatusIndicator>
               )}
               <RouterLink
-                to="/ingest"
+                to={workspacePath(activeWorkspace!.slug, "ingest")}
                 className="inline-flex h-9 items-center border border-lumen-control-border bg-lumen-action-secondary px-3 text-sm font-medium text-lumen-on-action-secondary"
               >
                 Ingest data
@@ -238,7 +239,7 @@ export default function OverviewPage() {
               {stats.map((stat) => (
                 <RouterLink
                   key={stat.label}
-                  to={stat.to}
+                  to={workspacePath(activeWorkspace!.slug, stat.to.slice(1))}
                   className="border-b border-r border-lumen-border p-5 transition-colors last:border-r-0 md:[&:nth-child(3n)]:border-r-0 hover:bg-lumen-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-lumen-primary"
                 >
                   <Stat>
@@ -281,7 +282,7 @@ export default function OverviewPage() {
               {shortcuts.map((item) => (
                 <RouterLink
                   key={item.to}
-                  to={item.to}
+                  to={workspacePath(activeWorkspace!.slug, item.to.slice(1))}
                   className="border-b border-lumen-border p-4 last:border-b-0 md:border-b-0 md:border-r md:last:border-r-0"
                 >
                   <div className="text-sm font-semibold text-lumen-foreground">

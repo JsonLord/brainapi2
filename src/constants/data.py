@@ -238,3 +238,16 @@ class Brain(BaseModel):
         description="The personal access token for the brain.",
         default_factory=_random_pat,
     )
+
+
+class Workspace(BaseModel):
+    """Routing and display metadata for an existing brain."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    brain_id: str
+    slug: str
+    display_name: str
+    description: str | None = None
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    archived: bool = False

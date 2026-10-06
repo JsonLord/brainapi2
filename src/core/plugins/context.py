@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from src.adapters.cache import CacheAdapter
@@ -45,9 +47,11 @@ class PluginContext:
         config: "Config",
         app: Optional["FastAPI"] = None,
         mcp: Optional["FastMCP"] = None,
+        workspace_mcp: Optional["FastMCP"] = None,
     ):
         self._app = app
         self.mcp = mcp
+        self.workspace_mcp = workspace_mcp or mcp
         self.adapters = adapters
         self.prompts = prompts
         self.config = config
@@ -55,6 +59,8 @@ class PluginContext:
         self._event_handlers: dict[str, list[Callable]] = {}
         self._search_retrievers: dict[str, Callable] = {}
         self._search_rerankers: dict[str, Callable] = {}
+        self._workspace_route_paths: set[tuple[str, str]] = set()
+        self._workspace_mcp_tools: set[str] = set()
 
     @classmethod
     def _build_adapters(cls) -> PluginAdapters:
@@ -92,11 +98,14 @@ class PluginContext:
         )
 
     @classmethod
-    def from_mcp(cls, mcp: "FastMCP") -> "PluginContext":
+    def from_mcp(
+        cls, mcp: "FastMCP", *, workspace_mcp: Optional["FastMCP"] = None
+    ) -> "PluginContext":
         from src.config import config
 
         return cls(
             mcp=mcp,
+            workspace_mcp=workspace_mcp,
             adapters=cls._build_adapters(),
             prompts=prompt_registry,
             config=config,
@@ -132,6 +141,97 @@ class PluginContext:
         if self.mcp is None:
             return
         self.mcp.tool(**kwargs)(fn)
+
+    def register_workspace_route(
+        self,
+        router: "APIRouter",
+        *,
+        capability: str,
+    ) -> None:
+        """Explicitly expose a plugin router below the hosted workspace API."""
+        if self._app is None:
+            return
+        from fastapi.routing import APIRoute
+        from src.services.api.dependencies import get_brain_id
+
+        if not capability or not capability.replace("-", "").isalnum():
+            raise ValueError("Workspace plugin capability must be URL-safe")
+        if "/system" in (getattr(router, "prefix", "") or ""):
+            raise ValueError("System routes cannot be workspace-hosted")
+        routes = [route for route in router.routes if isinstance(route, APIRoute)]
+        if not routes:
+            raise ValueError("Workspace plugin router has no API routes")
+        for route in routes:
+            dependencies = {
+                dependency.call for dependency in route.dependant.dependencies
+            }
+            if get_brain_id not in dependencies:
+                raise ValueError(
+                    f"Workspace plugin route {route.path} must declare "
+                    "brain_id: str = Depends(get_brain_id)"
+                )
+            for method in route.methods:
+                full_path = (
+                    f"/brains/{{workspace_slug}}/api/plugins/{capability}{route.path}"
+                )
+                key = (method, full_path)
+                existing = {
+                    (candidate_method, candidate.path)
+                    for candidate in self._app.routes
+                    if isinstance(candidate, APIRoute)
+                    for candidate_method in candidate.methods
+                }
+                if key in existing or key in self._workspace_route_paths:
+                    raise ValueError(f"Workspace plugin route collision: {method} {full_path}")
+                self._workspace_route_paths.add(key)
+        self._app.include_router(
+            router,
+            prefix=f"/brains/{{workspace_slug}}/api/plugins/{capability}",
+            tags=[f"workspace-plugin:{capability}"],
+        )
+
+    def register_workspace_mcp_tool(
+        self,
+        fn: Callable,
+        *,
+        name: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Register an opt-in MCP tool with immutable workspace context injection."""
+        if self.workspace_mcp is None:
+            return
+        from src.services.brain_context import brain_context_var
+
+        tool_name = name or fn.__name__
+        existing_tools = getattr(
+            getattr(self.workspace_mcp, "_tool_manager", None), "_tools", {}
+        )
+        if tool_name in self._workspace_mcp_tools or tool_name in existing_tools:
+            raise ValueError(f"Workspace MCP tool collision: {tool_name}")
+        if "brain_context" not in inspect.signature(fn).parameters:
+            raise ValueError(
+                "Workspace MCP tools must declare a brain_context parameter"
+            )
+
+        @wraps(fn)
+        async def scoped(*args: Any, **call_kwargs: Any):
+            context = brain_context_var.get()
+            if context is None:
+                raise PermissionError("Workspace MCP context is required")
+            call_kwargs["brain_context"] = context
+            result = fn(*args, **call_kwargs)
+            return await result if inspect.isawaitable(result) else result
+
+        signature = inspect.signature(fn)
+        scoped.__signature__ = signature.replace(  # type: ignore[attr-defined]
+            parameters=[
+                parameter
+                for parameter in signature.parameters.values()
+                if parameter.name != "brain_context"
+            ]
+        )
+        self._workspace_mcp_tools.add(tool_name)
+        self.workspace_mcp.tool(name=tool_name, **kwargs)(scoped)
 
     def add_event_handler(self, event: str, handler: Callable) -> None:
         self._event_handlers.setdefault(event, []).append(handler)

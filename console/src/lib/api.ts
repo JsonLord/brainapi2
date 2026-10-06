@@ -19,6 +19,29 @@ export interface ApiFetchOptions {
   logoutOn401?: boolean;
 }
 
+export interface Workspace {
+  id?: string;
+  brain_id: string;
+  slug: string;
+  display_name: string;
+  description?: string | null;
+  archived: boolean;
+  api_base_url: string;
+  console_url: string;
+}
+
+export interface CreateWorkspaceInput {
+  slug: string;
+  display_name: string;
+  description?: string | null;
+}
+
+export interface UpdateWorkspaceInput {
+  display_name?: string;
+  description?: string | null;
+  archived?: boolean;
+}
+
 let session: AuthSession | null = loadSession();
 
 export function getSession(): AuthSession | null {
@@ -130,6 +153,45 @@ export async function apiFetch<T>(
   }
 
   return data as T;
+}
+
+export function workspaceApiFetch<T>(
+  workspace: Pick<Workspace, "brain_id">,
+  path: string,
+  options: RequestInit = {},
+  fetchOptions: ApiFetchOptions = {},
+): Promise<T> {
+  return apiFetch<T>(path, options, workspace.brain_id, fetchOptions);
+}
+
+export async function fetchWorkspaces(): Promise<Workspace[]> {
+  const result = await apiFetch<{ workspaces: Workspace[] }>(
+    "/system/workspaces",
+  );
+  return result.workspaces;
+}
+
+export function fetchWorkspace(slug: string): Promise<Workspace> {
+  return apiFetch<Workspace>(`/system/workspaces/${encodeURIComponent(slug)}`);
+}
+
+export function createWorkspace(
+  input: CreateWorkspaceInput,
+): Promise<Workspace> {
+  return apiFetch<Workspace>("/system/workspaces", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateWorkspace(
+  slug: string,
+  input: UpdateWorkspaceInput,
+): Promise<Workspace> {
+  return apiFetch<Workspace>(
+    `/system/workspaces/${encodeURIComponent(slug)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
 }
 
 export interface LoginInfo {

@@ -14,7 +14,7 @@ import {
   SearchInput,
   Select,
 } from "lumen-ui-kit";
-import { apiFetch } from "../lib/api";
+import { useWorkspace } from "../workspaces/WorkspaceProvider";
 import {
   FilterBar,
   InlineField,
@@ -31,6 +31,7 @@ interface Observation {
 }
 
 export default function ObservationsPage() {
+  const { apiFetch, activeWorkspace } = useWorkspace();
   const [observations, setObservations] = useState<Observation[]>([]);
   const [labels, setLabels] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -46,7 +47,7 @@ export default function ObservationsPage() {
     apiFetch<{ labels?: string[] }>("/retrieve/observations/labels")
       .then((res) => setLabels(res.labels ?? []))
       .catch(() => setLabels([]));
-  }, []);
+  }, [apiFetch, activeWorkspace?.brain_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +80,7 @@ export default function ObservationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [query, resourceId, selectedLabel, skip, limit]);
+  }, [apiFetch, activeWorkspace?.brain_id, query, resourceId, selectedLabel, skip, limit]);
 
   return (
     <Workbench

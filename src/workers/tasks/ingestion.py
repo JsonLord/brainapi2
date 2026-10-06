@@ -23,7 +23,7 @@ from concurrent.futures import (
     TimeoutError as FutureTimeoutError,
 )
 from pathlib import Path
-from typing import List, Optional, Tuple, TypedDict
+from typing import List, Optional, Tuple
 from uuid import uuid4
 
 from src.core.saving.identity import (
@@ -32,22 +32,14 @@ from src.core.saving.identity import (
     stamp_provenance,
 )
 
-from pydantic import BaseModel
-
 from src.config import config
 from src.constants.agents import ArchitectAgentRelationship
 from src.constants.data import (
-    KGChangeLogNodePropertiesUpdated,
-    KGChangeLogPredicateUpdatedProperty,
-    KGChanges,
-    KGChangesType,
     Observation,
-    PartialNode,
     StructuredData,
     TextChunk,
 )
 from src.constants.kg import IdentificationParams, Node, Predicate
-from src.constants.prompts.misc import NODE_DESCRIPTION_PROMPT
 from src.constants.tasks.ingestion import (
     IngestionTaskArgs,
     IngestionTaskDataType,
@@ -56,13 +48,11 @@ from src.constants.tasks.ingestion import (
 from src.core.agents.architect_agent import ArchitectAgent
 from src.core.agents.kg_agent import KGAgent
 from src.core.agents.scout_agent import ScoutAgent, ScoutEntity
-from src.core.plugins.prompts import prompt_registry
 from src.core.saving.auto_kg import enrich_kg_from_input
 from src.core.saving.ingestion_manager import IngestionManager
 from src.services.api.constants.requests import (
     IngestionStructuredRequestBody,
     IngestionTripleSet,
-    PartialNodeFilter,
 )
 from src.services.data.main import data_adapter
 from src.services.input.agents import llm_small_adapter
@@ -129,6 +119,7 @@ def set_ingestion_task_status(
         **existing,
         "status": status,
         "task_id": task_id,
+        "brain_id": brain_id,
     }
     if stage is not None:
         payload["stage"] = stage
@@ -764,14 +755,19 @@ def ingest_data(self, args: dict):
         return parent_task_id
 
     except Exception as e:
-        brain_id = payload.brain_id if payload else args.get("brain_id", "default")
-        set_ingestion_task_status(
-            self.request.id,
-            brain_id,
-            "failed",
-            stage="failed",
-            error=str(e),
-        )
+        # A malformed task must never be attributed to an unrelated default
+        # brain.  Hosted and legacy ingestion both serialize brain_id into the
+        # task payload before it reaches the worker; if it is absent there is
+        # no safe namespace in which to publish failure state.
+        brain_id = payload.brain_id if payload else args.get("brain_id")
+        if brain_id:
+            set_ingestion_task_status(
+                self.request.id,
+                brain_id,
+                "failed",
+                stage="failed",
+                error=str(e),
+            )
         raise
 
 
@@ -779,7 +775,7 @@ def ingest_data(self, args: dict):
 def finalize_ingestion_task(
     self,
     parent_task_id: str,
-    brain_id: str = "default",
+    brain_id: str,
     status: str = "completed",
     error: Optional[str] = None,
     errors: Optional[list] = None,
@@ -811,7 +807,7 @@ def process_architect_relationships(self, args: dict):
     Parameters:
         args (dict): Task payload containing:
             - "relationships" (List[dict]): List of relationship payloads convertible to ArchitectAgentRelationship.
-            - "brain_id" (str, optional): Target brain identifier; defaults to "default".
+            - "brain_id" (str): Explicit target brain identifier.
 
     Description:
         For each relationship in `args["relationships"]`, the task generates embeddings for the relationship (and for any missing subject/object nodes), creates or updates graph nodes, and adds the relationship edge to the knowledge graph. Progress and final status are stored in the task cache under the current task id. Individual relationship or node failures (including timeouts) are skipped so remaining items continue processing.
@@ -830,7 +826,9 @@ def process_architect_relationships(self, args: dict):
     )
 
     relationships_data: List[dict] = args.get("relationships", [])
-    brain_id: str = args.get("brain_id", "default")
+    brain_id = args.get("brain_id")
+    if not brain_id:
+        raise ValueError("process_architect_relationships requires brain_id")
     session_id: Optional[str] = args.get("session_id")
     parent_task_id: Optional[str] = args.get("parent_task_id")
     status_task_id = parent_task_id or self.request.id
@@ -1460,14 +1458,15 @@ def ingest_structured_data(self, args: dict):
         return parent_task_id
 
     except Exception as e:
-        brain_id = payload.brain_id if payload else args.get("brain_id", "default")
-        set_ingestion_task_status(
-            self.request.id,
-            brain_id,
-            "failed",
-            stage="failed",
-            error=str(e),
-        )
+        brain_id = payload.brain_id if payload else args.get("brain_id")
+        if brain_id:
+            set_ingestion_task_status(
+                self.request.id,
+                brain_id,
+                "failed",
+                stage="failed",
+                error=str(e),
+            )
         raise
 
 
@@ -1475,7 +1474,7 @@ def ingest_structured_data(self, args: dict):
 def consolidate_graph_async(
     self,
     session_id: str,
-    brain_id: str = "default",
+    brain_id: str,
     ingestion_session_id: str = None,
     relationships: Optional[List[dict]] = None,
 ):
@@ -1579,7 +1578,13 @@ def ingest_file(self, content_b64: str, filename: str, brain_id: str):
 
     cache_adapter.set(
         key=f"task:{self.request.id}",
-        value=json.dumps({"status": "started", "task_id": self.request.id}),
+        value=json.dumps(
+            {
+                "status": "started",
+                "task_id": self.request.id,
+                "brain_id": brain_id,
+            }
+        ),
         brain_id=brain_id,
         expires_in=3600 * 24 * 7,
     )
@@ -1611,7 +1616,13 @@ def ingest_file(self, content_b64: str, filename: str, brain_id: str):
     for page_task_id in task_ids:
         cache_adapter.set(
             key=f"task:{page_task_id}",
-            value=json.dumps({"status": "queued", "task_id": page_task_id}),
+            value=json.dumps(
+                {
+                    "status": "queued",
+                    "task_id": page_task_id,
+                    "brain_id": brain_id,
+                }
+            ),
             brain_id=brain_id,
             expires_in=3600 * 24 * 7,
         )
@@ -1640,6 +1651,7 @@ def ingest_file(self, content_b64: str, filename: str, brain_id: str):
                 "status": "completed",
                 "task_id": self.request.id,
                 "task_ids": task_ids,
+                "brain_id": brain_id,
             }
         ),
         brain_id=brain_id,
