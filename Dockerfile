@@ -7,6 +7,7 @@ WORKDIR /console
 COPY console/package.json console/package-lock.json ./
 RUN npm ci
 COPY console/ ./
+RUN chmod +x node_modules/.bin/* 2>/dev/null || true
 RUN npm run build
 
 # ── Stage 2: Python builder ─────────────────────────────────
@@ -96,11 +97,11 @@ RUN chmod +x /app/entrypoint.sh
 RUN mkdir -p /app/plugins && chown appuser:appuser /app/plugins
 VOLUME ["/app/plugins"]
 
-EXPOSE 8000
+EXPOSE 7860
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=120s --retries=5 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:7860/health || exit 1
 
 USER root
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["-m", "uvicorn", "src.services.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--access-log", "--log-level", "info"]
+CMD ["-m", "uvicorn", "src.services.api.app:app", "--host", "0.0.0.0", "--port", "7860", "--access-log", "--log-level", "info"]
