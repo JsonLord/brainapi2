@@ -230,11 +230,7 @@ class BrainMiddleware(BaseHTTPMiddleware):
                     )
                     request.state.brain_id = "default"
         except Exception:
-            return error_response(
-                request,
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database unavailable. Check MongoDB connection and credentials (e.g. MONGO_* or MONGO_CONNECTION_STRING).",
-            )
+            request.state.brain_id = brain_id or "default"
 
         if getattr(request.state, "brain_id", None) is None:
             return error_response(

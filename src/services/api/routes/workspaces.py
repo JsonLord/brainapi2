@@ -16,7 +16,7 @@ from src.services.workspaces import (
     workspace_payload,
 )
 
-workspace_router = APIRouter(prefix="/system/workspaces", tags=["system"])
+workspace_router = APIRouter(prefix="/system/workspaces", tags=["workspaces"])
 
 
 def get_workspace_service() -> WorkspaceService:
@@ -31,7 +31,7 @@ def _not_found(error: Exception) -> HTTPException:
     return HTTPException(status_code=404, detail=str(error))
 
 
-@workspace_router.get("")
+@workspace_router.get("", response_model=dict)
 async def list_workspaces(request: Request):
     service = get_workspace_service()
     workspaces = service.bootstrap()
