@@ -217,7 +217,7 @@ install_openapi_contract(app)
 
 @app.get("/", include_in_schema=False)
 async def root():
-    return Response(content="ok", status_code=200)
+    return RedirectResponse(url="/console/", status_code=307)
 
 
 if _console_enabled():

@@ -45,9 +45,11 @@ def _brain_id_from_multipart(body: bytes, content_type: str) -> str | None:
 
 
 class BrainMiddleware(BaseHTTPMiddleware):
-    excluded_prefixes: set[str] = {"/console", "/docs", "/redoc", "/demo"}
+    excluded_prefixes: set[str] = {"/console", "/docs", "/redoc", "/demo", "/api-docs"}
     brain_exempt_paths: set[str] = {
+        "/",
         "/health",
+        "/api-docs",
         "/openapi.json",
         "/meta/login-info",
     }

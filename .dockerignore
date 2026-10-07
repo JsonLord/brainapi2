@@ -42,6 +42,11 @@ venv.bak/
 .cache/
 .ruff_cache/
 
+# Node dependencies
+node_modules/
+console/node_modules/
+tui/node_modules/
+
 # IDE
 .vscode/
 .idea/

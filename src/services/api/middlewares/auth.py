@@ -22,9 +22,11 @@ from src.services.workspaces import WorkspaceAccessDeniedError, authorize_brain_
 
 
 class BrainPATMiddleware(BaseHTTPMiddleware):
-    excluded_prefixes: set[str] = {"/console", "/docs", "/redoc", "/demo"}
+    excluded_prefixes: set[str] = {"/console", "/docs", "/redoc", "/demo", "/api-docs"}
     auth_exempt_paths: set[str] = {
+        "/",
         "/health",
+        "/api-docs",
         "/openapi.json",
         "/meta/login-info",
     }

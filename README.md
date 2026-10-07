@@ -1,3 +1,9 @@
+---
+title: BrainAPI
+sdk: docker
+app_port: 7860
+---
+
 <p align="center">
   <a href="https://discord.gg/VTngQTaeDf"><img src="https://img.shields.io/badge/Discord-Join%20Lumen%20Brain-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"/></a>
   <img src="https://img.shields.io/badge/version-2.19.0--dev-blue?style=for-the-badge" alt="Version"/>
