@@ -29,6 +29,7 @@ class BrainPATMiddleware(BaseHTTPMiddleware):
         "/api-docs",
         "/openapi.json",
         "/meta/login-info",
+        "/favicon.ico",
     }
 
     async def dispatch(self, request: Request, call_next):

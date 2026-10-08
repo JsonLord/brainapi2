@@ -38,7 +38,7 @@ async def get_login_info(request: Request):
     if not brain:
         if brainpat == system_pat:
             return {"is_system_pat": True, "brain_id": "default"}
-        return {"is_system_pat": False, "brain_id": "default"}
+        raise HTTPException(status_code=401, detail="Invalid or missing BrainPAT header")
 
     return {"is_system_pat": False, "brain_id": brain.name_key}
 
