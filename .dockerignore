@@ -120,7 +120,6 @@ src/lib/*/volumes/
 src/lib/*/docker-compose.yaml
 
 # Terraform / Infrastructure
-deploy/
 infra/
 *.tfstate
 *.tfstate.*

@@ -161,81 +161,8 @@ if [ -n "$BRAINAPI_PLUGINS" ]; then
     done
 fi
 
-# Generate supervisor config
-cat <<'EOF' > /etc/supervisor/supervisord.conf
-[supervisord]
-nodaemon=true
-user=root
-logfile=/dev/stdout
-logfile_maxbytes=0
-pidfile=/tmp/supervisord.pid
-loglevel=info
-
-[program:postgres]
-command=/usr/lib/postgresql/15/bin/postgres -D %(ENV_PGDATA)s -c config_file=%(ENV_PGDATA)s/postgresql.conf -k /tmp
-user=postgres
-autostart=true
-autorestart=true
-priority=1
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-
-[program:redis]
-command=/usr/bin/redis-server /etc/redis/redis.conf
-user=root
-autostart=true
-autorestart=true
-priority=2
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-
-[program:brainapi-api]
-command=/app/.venv/bin/python -m uvicorn src.services.api.app:app --host 127.0.0.1 --port 8000
-directory=/app
-autostart=true
-autorestart=true
-priority=10
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-
-[program:brainapi-mcp]
-command=/app/.venv/bin/python -m src.services.mcp.main
-directory=/app
-autostart=true
-autorestart=true
-priority=10
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-
-[program:brainapi-worker]
-command=/app/.venv/bin/python -m celery -A src.services.tasks.main.celery_app worker --loglevel=info
-directory=/app
-autostart=true
-autorestart=true
-priority=10
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-
-[program:nginx]
-command=/usr/sbin/nginx -g "daemon off;"
-autostart=true
-autorestart=true
-priority=20
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
-EOF
+# Copy supervisor config from deploy template
+cp /app/deploy/supervisord.conf /etc/supervisor/supervisord.conf
 
 echo "[entrypoint] Handing over execution to Supervisord (PID 1, nodaemon)..."
 exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
