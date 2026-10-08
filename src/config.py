@@ -596,11 +596,20 @@ class Config:
         self.data_db = os.getenv("DATA_DB", "mongo")
         self.graph_db = os.getenv("GRAPH_DB", "neo4j")
 
+        need_mongo = self.data_db.strip().lower() == "mongo"
+        need_milvus = self.vector_db.strip().lower() == "milvus"
+        need_neo4j = self.graph_db.strip().lower() == "neo4j"
+        need_postgres = (
+            self.data_db.strip().lower() == "postgresql"
+            or self.vector_db.strip().lower() == "postgresql"
+            or self.graph_db.strip().lower() == "networkx"
+        )
+
         self.redis = RedisConfig()
-        self.neo4j = Neo4jConfig()
-        self.postgresql = PostgreSQLConfig()
-        self.milvus = MilvusConfig()
-        self.mongo = MongoConfig()
+        self.neo4j = Neo4jConfig() if need_neo4j else None
+        self.postgresql = PostgreSQLConfig() if need_postgres else None
+        self.milvus = MilvusConfig() if need_milvus else None
+        self.mongo = MongoConfig() if need_mongo else None
         self.celery = CeleryConfig()
         self.spacy = SpacyConfig()
 
