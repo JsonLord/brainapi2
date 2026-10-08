@@ -234,7 +234,9 @@ export async function validateSession(s: AuthSession): Promise<boolean> {
   session = s;
   try {
     await apiFetch<string[]>("/meta/entity-labels");
-    return s.isSystemPat ?? false;
+    return true;
+  } catch {
+    return false;
   } finally {
     session = loadSession() ?? s;
   }

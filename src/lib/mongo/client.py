@@ -29,7 +29,10 @@ class MongoClient(DataClient):
             hasattr(config.mongo, "connection_string")
             and config.mongo.connection_string
         ):
-            self.client = PyMongoClient(config.mongo.connection_string)
+            self.client = PyMongoClient(
+                config.mongo.connection_string,
+                serverSelectionTimeoutMS=2000,
+            )
         else:
             self.client = PyMongoClient(
                 config.mongo.host,
@@ -37,6 +40,7 @@ class MongoClient(DataClient):
                 username=config.mongo.username,
                 password=config.mongo.password,
                 authSource="admin",
+                serverSelectionTimeoutMS=2000,
             )
 
     def get_database(self, database: str = "default") -> Database:

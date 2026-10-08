@@ -142,9 +142,13 @@ def _include_hosted_router(router: APIRouter) -> None:
     workspace_api_router.include_router(router, include_in_schema=False)
     for route in workspace_api_router.routes[start:]:
         methods = "_".join(sorted(getattr(route, "methods", ()) or ("route",)))
-        suffix = route.path.removeprefix(WORKSPACE_API_PREFIX).strip("/")
+        path = getattr(route, "path", None)
+        if path is None and hasattr(route, "original_router"):
+            path = WORKSPACE_API_PREFIX
+        suffix = (path or "").removeprefix(WORKSPACE_API_PREFIX).strip("/")
         suffix = suffix.replace("/", "_").replace("{", "").replace("}", "")
-        route.name = f"workspace_{route.name}_{methods.lower()}_{suffix or 'root'}"
+        route_name = getattr(route, "name", "route")
+        route.name = f"workspace_{route_name}_{methods.lower()}_{suffix or 'root'}"
 
 
 # Reuse the exact legacy route handlers and dependencies. The encompassing

@@ -71,6 +71,14 @@ def _build_large_llm(provider: str):
 
 
 def _build_embeddings(provider: str):
+    if provider == "mock":
+        from src.lib.embeddings.client_mock import _mock_embeddings_client
+
+        return _mock_embeddings_client
+    if provider == "fastembed":
+        from src.lib.embeddings.client_fastembed import _fastembed_client
+
+        return _fastembed_client
     if provider == "ollama":
         from src.lib.embeddings.client_ollama import _embeddings_ollama_client
 
@@ -129,7 +137,7 @@ elif config.data_db == "postgresql":
 _embeddings_primary = EmbeddingsAdapter()
 _embeddings_primary.add_client(_build_embeddings(config.embeddings_provider))
 _embeddings_small = EmbeddingsAdapter()
-if config.models_mode == "remote":
+if config.models_mode == "remote" or config.embeddings_provider == "ollama":
     # Keep remote mode free of local torch/sentence-transformers.
     # Architect similarity checks still work as long as both sides share a space.
     _embeddings_small.add_client(_build_embeddings(config.embeddings_provider))

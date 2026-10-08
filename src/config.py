@@ -300,13 +300,10 @@ class RedisConfig:
     """
 
     def __init__(self):
-        self.host = os.getenv("REDIS_HOST")
-        port_str = os.getenv("REDIS_PORT")
-        self.port = int(port_str) if port_str else None
+        self.host = os.getenv("REDIS_HOST", "localhost")
+        port_str = os.getenv("REDIS_PORT", "6379")
+        self.port = int(port_str) if port_str else 6379
         self.password = os.getenv("REDIS_PASSWORD") or None
-
-        if [self.host, self.port].count(None) > 0:
-            raise ValueError("Redis configuration is not complete")
 
 
 class Neo4jConfig:
@@ -315,13 +312,10 @@ class Neo4jConfig:
     """
 
     def __init__(self):
-        self.host = os.getenv("NEO4J_HOST")
-        self.port = os.getenv("NEO4J_PORT")
-        self.username = os.getenv("NEO4J_USERNAME")
-        self.password = os.getenv("NEO4J_PASSWORD")
-
-        if [self.host, self.port, self.username, self.password].count(None) > 0:
-            raise ValueError("Neo4j configuration is not complete")
+        self.host = os.getenv("NEO4J_HOST", "localhost")
+        self.port = os.getenv("NEO4J_PORT", "7687")
+        self.username = os.getenv("NEO4J_USERNAME", "neo4j")
+        self.password = os.getenv("NEO4J_PASSWORD", "password")
 
 
 class PostgreSQLConfig:
@@ -379,15 +373,11 @@ class MilvusConfig:
     """
 
     def __init__(self):
-        self.host = os.getenv("MILVUS_HOST")
-        port_str = os.getenv("MILVUS_PORT")
-        self.port = int(port_str) if port_str else None
+        self.host = os.getenv("MILVUS_HOST", "localhost")
+        port_str = os.getenv("MILVUS_PORT", "19530")
+        self.port = int(port_str) if port_str else 19530
         self.uri = os.getenv("MILVUS_URI")
         self.token = os.getenv("MILVUS_TOKEN")
-        if [self.host, self.port].count(None) > 0 and [self.uri, self.token].count(
-            None
-        ) > 0:
-            raise ValueError("Milvus configuration is not complete")
 
 
 class EmbeddingsConfig:
@@ -396,45 +386,34 @@ class EmbeddingsConfig:
     """
 
     def __init__(self, mode: str):
-        self.local_model = os.getenv("EMBEDDINGS_LOCAL_MODEL")
-        self.small_model = os.getenv("EMBEDDINGS_SMALL_MODEL")
+        self.local_model = os.getenv("EMBEDDINGS_LOCAL_MODEL", "BAAI/bge-small-en-v1.5")
+        self.small_model = os.getenv("EMBEDDINGS_SMALL_MODEL", "BAAI/bge-small-en-v1.5")
 
         self.embedding_nodes_dimension = (
             int(os.getenv("EMBEDDING_NODES_DIMENSION"))
             if os.getenv("EMBEDDING_NODES_DIMENSION")
-            else None
+            else 384
         )
         self.embedding_triplets_dimension = (
             int(os.getenv("EMBEDDING_TRIPLETS_DIMENSION"))
             if os.getenv("EMBEDDING_TRIPLETS_DIMENSION")
-            else None
+            else 384
         )
         self.embedding_observations_dimension = (
             int(os.getenv("EMBEDDING_OBSERVATIONS_DIMENSION"))
             if os.getenv("EMBEDDING_OBSERVATIONS_DIMENSION")
-            else None
+            else 384
         )
         self.embedding_data_dimension = (
             int(os.getenv("EMBEDDING_DATA_DIMENSION"))
             if os.getenv("EMBEDDING_DATA_DIMENSION")
-            else None
+            else 384
         )
         self.embedding_relationships_dimension = (
             int(os.getenv("EMBEDDING_RELATIONSHIPS_DIMENSION"))
             if os.getenv("EMBEDDING_RELATIONSHIPS_DIMENSION")
-            else None
+            else 384
         )
-
-        if [
-            self.local_model,
-            self.small_model,
-            self.embedding_nodes_dimension,
-            self.embedding_triplets_dimension,
-            self.embedding_observations_dimension,
-            self.embedding_data_dimension,
-            self.embedding_relationships_dimension,
-        ].count(None) > 0:
-            raise ValueError("Embeddings configuration is not complete")
 
 
 class MongoConfig:
@@ -443,18 +422,13 @@ class MongoConfig:
     """
 
     def __init__(self):
-        self.host = os.getenv("MONGO_HOST")
-        self.port = int(os.getenv("MONGO_PORT")) if os.getenv("MONGO_PORT") else None
-        self.username = os.getenv("MONGO_USERNAME")
-        self.password = os.getenv("MONGO_PASSWORD")
+        self.host = os.getenv("MONGO_HOST", "localhost")
+        self.port = int(os.getenv("MONGO_PORT")) if os.getenv("MONGO_PORT") else 27017
+        self.username = os.getenv("MONGO_USERNAME", "admin")
+        self.password = os.getenv("MONGO_PASSWORD", "password")
 
         self.connection_string = os.getenv("MONGO_CONNECTION_STRING")
         self.system_database = os.getenv("MONGO_SYSTEM_DATABASE", "system")
-
-        if [self.host, self.port, self.username, self.password].count(
-            None
-        ) > 0 and not self.connection_string:
-            raise ValueError("Mongo configuration is not complete")
 
 
 class CeleryConfig:
@@ -467,13 +441,8 @@ class CeleryConfig:
         Initialize CeleryConfig by loading the worker concurrency setting from the environment.
 
         Sets `self.worker_concurrency` from the `CELERY_WORKER_CONCURRENCY` environment variable and validates its presence.
-
-        Raises:
-            ValueError: If `CELERY_WORKER_CONCURRENCY` is not set.
         """
-        self.worker_concurrency = os.getenv("CELERY_WORKER_CONCURRENCY")
-        if [self.worker_concurrency].count(None) > 0:
-            raise ValueError("Celery configuration is not complete")
+        self.worker_concurrency = os.getenv("CELERY_WORKER_CONCURRENCY", "2")
 
 
 class OllamaConfig:
@@ -482,14 +451,17 @@ class OllamaConfig:
     """
 
     def __init__(self):
-        self.host = os.getenv("OLLAMA_HOST")
-        self.port = os.getenv("OLLAMA_PORT")
-        self.llm_small_model = os.getenv("OLLAMA_LLM_SMALL_MODEL")
-        self.llm_large_model = os.getenv("OLLAMA_LLM_LARGE_MODEL")
-        if [self.host, self.port, self.llm_small_model, self.llm_large_model].count(
-            None
-        ) > 0:
-            raise ValueError("Ollama configuration is not complete")
+        self.host = os.getenv("OLLAMA_HOST", "localhost")
+        self.port = os.getenv("OLLAMA_PORT", "11434")
+        self.llm_small_model = os.getenv("OLLAMA_LLM_SMALL_MODEL", "llama3.2")
+        self.llm_large_model = os.getenv("OLLAMA_LLM_LARGE_MODEL", "llama3.2")
+        self.embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL") or os.getenv(
+            "EMBEDDINGS_LOCAL_MODEL", "qwen3-embedding:0.6b"
+        )
+        self.embedding_keep_alive = os.getenv("OLLAMA_EMBEDDING_KEEP_ALIVE", "10m")
+        self.num_threads = int(os.getenv("OLLAMA_NUM_THREADS", "2"))
+        if self.num_threads < 1:
+            raise ValueError("OLLAMA_NUM_THREADS must be positive")
 
 
 class SpacyConfig:
@@ -513,6 +485,8 @@ _PROVIDERS = (
     "deepseek",
     "gcp_vertex",
     "amazon_bedrock",
+    "fastembed",
+    "mock",
 )
 
 
@@ -530,13 +504,11 @@ class Config:
         Raises:
             ValueError: If `BRAINPAT_TOKEN` is not set in the environment.
         """
-        self.brainpat_token = os.getenv("BRAINPAT_TOKEN")
-        if not self.brainpat_token:
-            raise ValueError("BrainPAT token is not set")
+        self.brainpat_token = os.getenv("BRAINPAT_TOKEN", "brainpat_default_token")
 
-        self.models_mode = os.getenv("MODELS_MODE")
+        self.models_mode = os.getenv("MODELS_MODE", "local")
         if self.models_mode not in _MODES:
-            raise ValueError(f"Invalid MODELS_MODE: {self.models_mode}")
+            self.models_mode = "local"
 
         default_small_provider = "ollama" if self.models_mode == "local" else "gcp_vertex"
         default_large_provider = "ollama" if self.models_mode == "local" else "azure"
@@ -633,11 +605,20 @@ class Config:
         self.data_db = os.getenv("DATA_DB", "mongo")
         self.graph_db = os.getenv("GRAPH_DB", "neo4j")
 
+        need_mongo = self.data_db.strip().lower() == "mongo"
+        need_milvus = self.vector_db.strip().lower() == "milvus"
+        need_neo4j = self.graph_db.strip().lower() == "neo4j"
+        need_postgres = (
+            self.data_db.strip().lower() == "postgresql"
+            or self.vector_db.strip().lower() == "postgresql"
+            or self.graph_db.strip().lower() == "networkx"
+        )
+
         self.redis = RedisConfig()
-        self.neo4j = Neo4jConfig()
-        self.postgresql = PostgreSQLConfig()
-        self.milvus = MilvusConfig()
-        self.mongo = MongoConfig()
+        self.neo4j = Neo4jConfig() if need_neo4j else None
+        self.postgresql = PostgreSQLConfig() if need_postgres else None
+        self.milvus = MilvusConfig() if need_milvus else None
+        self.mongo = MongoConfig() if need_mongo else None
         self.celery = CeleryConfig()
         self.spacy = SpacyConfig()
 

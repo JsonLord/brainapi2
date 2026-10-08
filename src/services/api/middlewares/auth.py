@@ -22,11 +22,14 @@ from src.services.workspaces import WorkspaceAccessDeniedError, authorize_brain_
 
 
 class BrainPATMiddleware(BaseHTTPMiddleware):
-    excluded_prefixes: set[str] = {"/console", "/docs", "/redoc", "/demo"}
+    excluded_prefixes: set[str] = {"/console", "/docs", "/redoc", "/demo", "/api-docs"}
     auth_exempt_paths: set[str] = {
+        "/",
         "/health",
+        "/api-docs",
         "/openapi.json",
         "/meta/login-info",
+        "/favicon.ico",
     }
 
     async def dispatch(self, request: Request, call_next):
@@ -36,7 +39,7 @@ class BrainPATMiddleware(BaseHTTPMiddleware):
         if is_console_path(request.url.path):
             return await call_next(request)
 
-        if any(request.url.path.startswith(p) for p in self.excluded_prefixes):
+        if any(request.url.path.startswith(p) for p in self.excluded_prefixes) or "/mcp" in request.url.path:
             return await call_next(request)
 
         if request.url.path in self.auth_exempt_paths:

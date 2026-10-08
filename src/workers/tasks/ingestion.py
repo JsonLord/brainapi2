@@ -647,7 +647,7 @@ def ingest_data(self, args: dict):
         with track_stage(cost_ledger, "embed"):
             cost_ledger.embed.add_usage(calls=1)
 
-        if payload.skip_enrichment:
+        if payload.skip_enrichment or config.pipeline_mode == "lightweight":
             set_ingestion_task_status(
                 self.request.id,
                 payload.brain_id,

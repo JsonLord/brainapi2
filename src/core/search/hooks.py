@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable, Optional
+import os
 
 from src.core.search.graph_channels import CORE_CHANNELS
 
@@ -60,6 +61,9 @@ def get_search_retriever(name: str) -> Optional[RetrieveFn]:
 
 
 def get_search_reranker(name: str) -> Optional[RerankFn]:
+    if _clean_name(name) == "llama_cpp" and os.getenv("LLAMA_RERANK_URL"):
+        from src.lib.reranking.client_llama_cpp import rerank
+        return rerank
     return _rerankers.get(_clean_name(name))
 
 
@@ -68,7 +72,10 @@ def listed_retrievers() -> list[str]:
 
 
 def listed_rerankers() -> list[str]:
-    return sorted(_rerankers)
+    names = set(_rerankers)
+    if os.getenv("LLAMA_RERANK_URL"):
+        names.add("llama_cpp")
+    return sorted(names)
 
 
 def _clean_name(name: str) -> str:

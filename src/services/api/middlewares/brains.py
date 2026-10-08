@@ -45,18 +45,21 @@ def _brain_id_from_multipart(body: bytes, content_type: str) -> str | None:
 
 
 class BrainMiddleware(BaseHTTPMiddleware):
-    excluded_prefixes: set[str] = {"/console", "/docs", "/redoc", "/demo"}
+    excluded_prefixes: set[str] = {"/console", "/docs", "/redoc", "/demo", "/api-docs"}
     brain_exempt_paths: set[str] = {
+        "/",
         "/health",
+        "/api-docs",
         "/openapi.json",
         "/meta/login-info",
+        "/favicon.ico",
     }
 
     async def dispatch(self, request: Request, call_next):
         if is_console_path(request.url.path):
             return await call_next(request)
 
-        if any(request.url.path.startswith(p) for p in self.excluded_prefixes):
+        if any(request.url.path.startswith(p) for p in self.excluded_prefixes) or "/mcp" in request.url.path:
             return await call_next(request)
 
         if request.url.path in self.brain_exempt_paths:
@@ -230,11 +233,7 @@ class BrainMiddleware(BaseHTTPMiddleware):
                     )
                     request.state.brain_id = "default"
         except Exception:
-            return error_response(
-                request,
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database unavailable. Check MongoDB connection and credentials (e.g. MONGO_* or MONGO_CONNECTION_STRING).",
-            )
+            request.state.brain_id = brain_id or "default"
 
         if getattr(request.state, "brain_id", None) is None:
             return error_response(

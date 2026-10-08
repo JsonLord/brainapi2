@@ -1,0 +1,11 @@
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+console/node_modules/
+tui/node_modules/
+.pytest_cache/
+.coverage
+.env

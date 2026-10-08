@@ -1,5 +1,23 @@
 # syntax=docker/dockerfile:1.4
 
+# Pin verified Ollama artifacts; keep CUDA/Vulkan libraries out of the CPU Space.
+FROM ollama/ollama:0.40.1@sha256:69f27594d8127cb43db1edcafa5e2d3cd8f88bdbc54a2cf3ceb11b8d138a24b1 AS ollama-source
+
+FROM debian:bookworm-slim AS ollama-models
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl libstdc++6 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=ollama-source /bin/ollama /bin/ollama
+COPY --from=ollama-source /usr/lib/ollama/*.so* /usr/lib/ollama/
+COPY --from=ollama-source /usr/lib/ollama/llama-server /usr/lib/ollama/llama-server
+COPY --from=ollama-source /usr/lib/ollama/*LICENSE* /usr/lib/ollama/
+ARG OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
+ARG OLLAMA_CHAT_MODEL=qwen3:0.6b
+ENV OLLAMA_MODELS=/opt/ollama-models OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_NO_CLOUD=true
+COPY scripts/preload_ollama_models.sh /tmp/preload_ollama_models.sh
+RUN OLLAMA_EMBEDDING_MODEL="$OLLAMA_EMBEDDING_MODEL" OLLAMA_CHAT_MODEL="$OLLAMA_CHAT_MODEL" \
+    bash /tmp/preload_ollama_models.sh
+
 # ── Stage 1: Console builder ────────────────────────────────
 FROM node:22.22.0-bookworm-slim AS console-builder
 
@@ -7,10 +25,18 @@ WORKDIR /console
 COPY console/package.json console/package-lock.json ./
 RUN npm ci
 COPY console/ ./
+RUN chmod +x node_modules/.bin/* 2>/dev/null || true
 RUN npm run build
 
 # ── Stage 2: Python builder ─────────────────────────────────
 FROM python:3.11.14-slim-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    postgresql-15 \
+    postgresql-server-dev-15 \
+    && rm -rf /var/lib/apt/lists/*
 
 ARG INSTALL_LOCAL_ML=false
 
@@ -26,14 +52,12 @@ ENV PYTHONUNBUFFERED=1 \
     SENTENCE_TRANSFORMERS_HOME=/app/.cache \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
 RUN pip install --no-cache-dir poetry==2.1.3
 
 WORKDIR /app
+
+RUN git clone --branch v0.5.1 https://github.com/pgvector/pgvector.git /tmp/pgvector \
+    && cd /tmp/pgvector && make && make install
 
 COPY pyproject.toml poetry.lock ./
 
@@ -78,29 +102,41 @@ RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     curl \
     util-linux \
+    postgresql-15 \
+    postgresql-contrib-15 \
+    redis-server \
+    nginx \
+    supervisor \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip uninstall -y setuptools wheel \
     && groupadd -r appuser && useradd -r -g appuser -m appuser
 
 WORKDIR /app
 
+COPY --from=builder /usr/lib/postgresql/15/lib/vector.so /usr/lib/postgresql/15/lib/
+COPY --from=builder /usr/share/postgresql/15/extension/vector* /usr/share/postgresql/15/extension/
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/.cache /app/.cache
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/pyproject.toml /app/
+COPY --from=ollama-models /bin/ollama /bin/ollama
+COPY --from=ollama-models /usr/lib/ollama /usr/lib/ollama
+COPY --from=ollama-models /opt/ollama-models /opt/ollama-models
 COPY --from=console-builder /console/dist /app/console/dist
+COPY deploy/ ./deploy/
 COPY entrypoint.sh ./
+COPY scripts/start_with_ollama.py ./scripts/start_with_ollama.py
 
 RUN chmod +x /app/entrypoint.sh
 
 RUN mkdir -p /app/plugins && chown appuser:appuser /app/plugins
 VOLUME ["/app/plugins"]
 
-EXPOSE 8000
+EXPOSE 7860
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=120s --retries=5 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://127.0.0.1:7860/health || exit 1
 
 USER root
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["-m", "uvicorn", "src.services.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--access-log", "--log-level", "info"]
