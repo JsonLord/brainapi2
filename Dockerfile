@@ -103,7 +103,6 @@ COPY --from=builder /app/src /app/src
 COPY --from=builder /app/pyproject.toml /app/
 COPY --from=console-builder /console/dist /app/console/dist
 COPY entrypoint.sh ./
-COPY deploy/ /app/deploy/
 
 RUN chmod +x /app/entrypoint.sh
 

@@ -24,6 +24,7 @@ if [ -d "/data" ]; then
     PERSISTENT_ROOT="/data/brainapi"
 else
     PERSISTENT_ROOT="/app/.data/brainapi"
+    echo "WARNING: /data persistent storage unavailable; BrainAPI state will not survive container replacement/rebuild."
 fi
 
 mkdir -p "$PERSISTENT_ROOT/postgres" "$PERSISTENT_ROOT/redis" /var/lib/postgresql
@@ -87,7 +88,7 @@ pkill -9 redis-server 2>/dev/null || true
 pkill -9 -f supervisord 2>/dev/null || true
 sleep 1
 
-# Start background services directly without full shutdown loop
+# Start background services directly for temporary initialization
 su - postgres -c "/usr/lib/postgresql/15/bin/pg_ctl -D '$PGDATA' -o '-k /tmp' -w start"
 /usr/bin/redis-server /etc/redis/redis.conf --daemonize yes
 
@@ -117,6 +118,12 @@ from src.services.workspaces import WorkspaceService
 WorkspaceService(data_adapter).bootstrap()
 print('[entrypoint] Workspace bootstrap successful.')
 "
+
+# Stop temporary initialization daemons so Supervisord manages exactly one instance of each
+echo "[entrypoint] Stopping temporary initialization daemons before handing control to Supervisord..."
+su - postgres -c "/usr/lib/postgresql/15/bin/pg_ctl -D '$PGDATA' -m fast stop" 2>/dev/null || true
+REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h 127.0.0.1 -p $REDIS_PORT shutdown 2>/dev/null || true
+sleep 1
 
 # 4. Nginx Setup
 if [ -f /app/deploy/nginx.conf ]; then
@@ -154,10 +161,81 @@ if [ -n "$BRAINAPI_PLUGINS" ]; then
     done
 fi
 
-# Copy supervisor config if present
-if [ -f /app/deploy/supervisord.conf ]; then
-    cp /app/deploy/supervisord.conf /etc/supervisor/supervisord.conf
-fi
+# Generate supervisor config
+cat <<'EOF' > /etc/supervisor/supervisord.conf
+[supervisord]
+nodaemon=true
+user=root
+logfile=/dev/stdout
+logfile_maxbytes=0
+pidfile=/tmp/supervisord.pid
+loglevel=info
 
-echo "[entrypoint] Launching supervisord..."
-exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
+[program:postgres]
+command=/usr/lib/postgresql/15/bin/postgres -D %(ENV_PGDATA)s -c config_file=%(ENV_PGDATA)s/postgresql.conf -k /tmp
+user=postgres
+autostart=true
+autorestart=true
+priority=1
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:redis]
+command=/usr/bin/redis-server /etc/redis/redis.conf
+user=root
+autostart=true
+autorestart=true
+priority=2
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:brainapi-api]
+command=/app/.venv/bin/python -m uvicorn src.services.api.app:app --host 127.0.0.1 --port 8000
+directory=/app
+autostart=true
+autorestart=true
+priority=10
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:brainapi-mcp]
+command=/app/.venv/bin/python -m src.services.mcp.main
+directory=/app
+autostart=true
+autorestart=true
+priority=10
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:brainapi-worker]
+command=/app/.venv/bin/python -m celery -A src.services.tasks.main.celery_app worker --loglevel=info
+directory=/app
+autostart=true
+autorestart=true
+priority=10
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:nginx]
+command=/usr/sbin/nginx -g "daemon off;"
+autostart=true
+autorestart=true
+priority=20
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+EOF
+
+echo "[entrypoint] Handing over execution to Supervisord (PID 1, nodaemon)..."
+exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf
