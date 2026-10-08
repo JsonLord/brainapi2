@@ -215,6 +215,11 @@ app.include_router(agent_router)
 install_openapi_contract(app)
 
 
+@app.get("/api-docs", include_in_schema=False)
+async def api_docs_redirect():
+    return RedirectResponse(url="/docs", status_code=307)
+
+
 @app.get("/", include_in_schema=False)
 async def root():
     return RedirectResponse(url="/console/", status_code=307)
