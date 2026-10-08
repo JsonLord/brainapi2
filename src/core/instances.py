@@ -137,7 +137,7 @@ elif config.data_db == "postgresql":
 _embeddings_primary = EmbeddingsAdapter()
 _embeddings_primary.add_client(_build_embeddings(config.embeddings_provider))
 _embeddings_small = EmbeddingsAdapter()
-if config.models_mode == "remote":
+if config.models_mode == "remote" or config.embeddings_provider == "ollama":
     # Keep remote mode free of local torch/sentence-transformers.
     # Architect similarity checks still work as long as both sides share a space.
     _embeddings_small.add_client(_build_embeddings(config.embeddings_provider))

@@ -1,5 +1,23 @@
 # syntax=docker/dockerfile:1.4
 
+# Pin verified Ollama artifacts; keep CUDA/Vulkan libraries out of the CPU Space.
+FROM ollama/ollama:0.40.1@sha256:69f27594d8127cb43db1edcafa5e2d3cd8f88bdbc54a2cf3ceb11b8d138a24b1 AS ollama-source
+
+FROM debian:bookworm-slim AS ollama-models
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl libstdc++6 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=ollama-source /bin/ollama /bin/ollama
+COPY --from=ollama-source /usr/lib/ollama/*.so* /usr/lib/ollama/
+COPY --from=ollama-source /usr/lib/ollama/llama-server /usr/lib/ollama/llama-server
+COPY --from=ollama-source /usr/lib/ollama/*LICENSE* /usr/lib/ollama/
+ARG OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
+ARG OLLAMA_CHAT_MODEL=qwen3:0.6b
+ENV OLLAMA_MODELS=/opt/ollama-models OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_NO_CLOUD=true
+COPY scripts/preload_ollama_models.sh /tmp/preload_ollama_models.sh
+RUN OLLAMA_EMBEDDING_MODEL="$OLLAMA_EMBEDDING_MODEL" OLLAMA_CHAT_MODEL="$OLLAMA_CHAT_MODEL" \
+    bash /tmp/preload_ollama_models.sh
+
 # ── Stage 1: Console builder ────────────────────────────────
 FROM node:22.22.0-bookworm-slim AS console-builder
 
@@ -89,6 +107,7 @@ RUN apt-get update && apt-get upgrade -y \
     redis-server \
     nginx \
     supervisor \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip uninstall -y setuptools wheel \
     && groupadd -r appuser && useradd -r -g appuser -m appuser
@@ -101,9 +120,13 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/.cache /app/.cache
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/pyproject.toml /app/
+COPY --from=ollama-models /bin/ollama /bin/ollama
+COPY --from=ollama-models /usr/lib/ollama /usr/lib/ollama
+COPY --from=ollama-models /opt/ollama-models /opt/ollama-models
 COPY --from=console-builder /console/dist /app/console/dist
 COPY deploy/ ./deploy/
 COPY entrypoint.sh ./
+COPY scripts/start_with_ollama.py ./scripts/start_with_ollama.py
 
 RUN chmod +x /app/entrypoint.sh
 

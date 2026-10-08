@@ -455,6 +455,13 @@ class OllamaConfig:
         self.port = os.getenv("OLLAMA_PORT", "11434")
         self.llm_small_model = os.getenv("OLLAMA_LLM_SMALL_MODEL", "llama3.2")
         self.llm_large_model = os.getenv("OLLAMA_LLM_LARGE_MODEL", "llama3.2")
+        self.embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL") or os.getenv(
+            "EMBEDDINGS_LOCAL_MODEL", "qwen3-embedding:0.6b"
+        )
+        self.embedding_keep_alive = os.getenv("OLLAMA_EMBEDDING_KEEP_ALIVE", "10m")
+        self.num_threads = int(os.getenv("OLLAMA_NUM_THREADS", "2"))
+        if self.num_threads < 1:
+            raise ValueError("OLLAMA_NUM_THREADS must be positive")
 
 
 class SpacyConfig:
