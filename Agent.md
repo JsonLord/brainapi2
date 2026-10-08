@@ -82,3 +82,27 @@ This document serves as the guide and best practices for automated agents deploy
 
 4. **Iterative Debugging:**
    Inspect build and run logs for missing dependencies, port binding issues, or startup exceptions. Modify codebase accordingly, redeploy, and monitor until the Space reaches `RUNNING` status and responds to `/health` and `/api-docs`.
+
+### Functional Endpoints
+
+### /retrieve/context
+- Method: POST
+- Purpose: Retrieve relevant information for a piece of text (graph triples, passages).
+- Request:
+  {
+    "text": "hello world",
+    "brain_id": "default"
+  }
+- Response:
+  {
+    "text_context": "..."
+  }
+
+### /retrieve/search
+- Method: GET
+- Purpose: Ranked search hits.
+- Request: /retrieve/search?query=hello
+- Response:
+  {
+    "results": [...]
+  }
