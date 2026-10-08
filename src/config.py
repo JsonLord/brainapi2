@@ -478,6 +478,8 @@ _PROVIDERS = (
     "deepseek",
     "gcp_vertex",
     "amazon_bedrock",
+    "fastembed",
+    "mock",
 )
 
 

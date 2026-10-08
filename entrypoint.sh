@@ -6,6 +6,12 @@ export DATA_DB="${DATA_DB:-postgresql}"
 export VECTOR_DB="${VECTOR_DB:-postgresql}"
 export GRAPH_DB="${GRAPH_DB:-networkx}"
 export CELERY_BACKEND="${CELERY_BACKEND:-redis}"
+export PIPELINE_MODE="${PIPELINE_MODE:-lightweight}"
+
+export MODELS_MODE="${MODELS_MODE:-local}"
+export LLM_SMALL_PROVIDER="${LLM_SMALL_PROVIDER:-ollama}"
+export LLM_LARGE_PROVIDER="${LLM_LARGE_PROVIDER:-ollama}"
+export EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-fastembed}"
 
 export POSTGRES_HOST="${POSTGRES_HOST:-127.0.0.1}"
 export POSTGRES_PORT="${POSTGRES_PORT:-5432}"
@@ -98,6 +104,7 @@ until su - postgres -c "pg_isready -h 127.0.0.1 -p $POSTGRES_PORT"; do
 done
 
 echo "[entrypoint] Ensuring Postgres database and extension..."
+su - postgres -c "psql -h /tmp -d template1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' 2>/dev/null || true"
 su - postgres -c "psql -h /tmp -c \"CREATE USER $POSTGRES_USERNAME WITH PASSWORD '$POSTGRES_PASSWORD';\" 2>/dev/null || true"
 su - postgres -c "psql -h /tmp -c \"ALTER USER $POSTGRES_USERNAME WITH PASSWORD '$POSTGRES_PASSWORD';\" 2>/dev/null || true"
 su - postgres -c "psql -h /tmp -c \"CREATE DATABASE $POSTGRES_SYSTEM_DATABASE OWNER $POSTGRES_USERNAME;\" 2>/dev/null || true"
@@ -111,7 +118,11 @@ until REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h 127.0.0.1 -p $REDIS_PORT ping
 done
 
 echo "[entrypoint] Verifying BrainAPI workspace bootstrap..."
-export BRAINPAT_TOKEN="brainpat_default_token"
+if [ -z "${BRAINPAT_TOKEN:-}" ]; then
+    echo "ERROR: BRAINPAT_TOKEN must be configured as a Hugging Face Space Secret." >&2
+    exit 1
+fi
+
 /app/.venv/bin/python -c "
 from src.services.data.main import data_adapter
 from src.services.workspaces import WorkspaceService

@@ -71,6 +71,14 @@ def _build_large_llm(provider: str):
 
 
 def _build_embeddings(provider: str):
+    if provider == "mock":
+        from src.lib.embeddings.client_mock import _mock_embeddings_client
+
+        return _mock_embeddings_client
+    if provider == "fastembed":
+        from src.lib.embeddings.client_fastembed import _fastembed_client
+
+        return _fastembed_client
     if provider == "ollama":
         from src.lib.embeddings.client_ollama import _embeddings_ollama_client
 
