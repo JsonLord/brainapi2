@@ -126,7 +126,9 @@ COPY --from=ollama-models /opt/ollama-models /opt/ollama-models
 COPY --from=console-builder /console/dist /app/console/dist
 COPY deploy/ ./deploy/
 COPY entrypoint.sh ./
-COPY scripts/start_with_ollama.py ./scripts/start_with_ollama.py
+COPY scripts/ ./scripts/
+RUN test -f scripts/start_with_ollama.py \
+    && test -f scripts/preload_ollama_models.sh
 
 RUN chmod +x /app/entrypoint.sh
 
