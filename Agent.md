@@ -95,23 +95,110 @@ This document serves as the guide and best practices for automated agents deploy
 ### Functional Endpoints
 
 ### /retrieve/context
-- Method: POST
-- Purpose: Retrieve relevant information for a piece of text (graph triples, passages).
-- Request:
+- **Method:** POST
+- **Purpose:** Retrieve an entity's contextual information based on a given text, generating triples and passages.
+- **Authentication:** Requires `BrainPAT` header or Bearer token unless using the system fallback.
+- **Request (JSON):**
+  - `text` (str, required): The text to search context for.
+  - `brain_id` (str, optional, default: `"default"`): The brain/workspace identifier to query.
+  - `historical_limit` (int, optional, default: `10`)
+  - `max_facts` (int, optional, default: `40`, min: `0`)
+  - `max_passages` (int, optional, default: `8`)
+  - `apply_fact_filter` (bool, optional, default: `true`)
+  - `use_ppr` (bool, optional, default: `true`)
+  - `sufficiency_retry` (bool, optional, default: `false`)
+  - `profile_stages` (bool, optional, default: `false`)
+  - `cross_event_bridges` (int, optional, default: `3`, min: `0`)
+  ```json
   {
-    "text": "hello world",
-    "brain_id": "default"
+    "text": "Identify memory leaks in Python",
+    "brain_id": "default",
+    "historical_limit": 10,
+    "max_facts": 40,
+    "max_passages": 8,
+    "apply_fact_filter": true,
+    "use_ppr": true,
+    "sufficiency_retry": false,
+    "profile_stages": false,
+    "cross_event_bridges": 3
   }
-- Response:
+  ```
+- **Response (JSON):**
+  ```json
   {
-    "text_context": "..."
+    "text_context": "Found 3 passages and 10 triples related to the query...",
+    "triples": [
+      {
+        "identified_entity": "memory_leak",
+        "triple": [
+          {"id": "python", "label": "Language", "properties": {"name": "Python"}},
+          {"id": "causes", "type": "CAUSES", "properties": {}},
+          {"id": "memory_leak", "label": "Issue", "properties": {"name": "Memory Leak"}}
+        ],
+        "source_chunk_ids": ["chunk-123"]
+      }
+    ],
+    "historical_context": ["Previous discussions about memory profiling..."],
+    "source_passages": ["Python's garbage collector sometimes misses reference cycles..."],
+    "graph_session_ids": ["sess-456"],
+    "temporal_conflicts": [],
+    "paths": [],
+    "topics": [{"topic": "performance", "weight": 0.8}],
+    "stage_timings": {"retrieval": 0.15, "formatting": 0.02}
   }
+  ```
 
 ### /retrieve/search
-- Method: GET
-- Purpose: Ranked search hits.
-- Request: /retrieve/search?query=hello
-- Response:
+- **Method:** POST (Canonical) / GET (Compatibility)
+- **Purpose:** Execute a ranked search across passages, entities, events, communities, and plugins with optional re-ranking.
+- **Authentication:** Requires `BrainPAT` header or Bearer token unless using the system fallback.
+- **Request (POST JSON or GET Query Params):**
+  - `query` (str, required): The search query.
+  - `brain_id` (str, optional, default: `"default"`): The brain identifier to query.
+  - `k` (int, optional, default: `10`, range: `1-200`): Number of hits to return.
+  - `channels` (List[str], optional, default: `["passages"]`): Channels to search. Allowed channels include `passages`, `entities`, `events`, `communities`, and/or `plugin:<name>`.
+  - `node_labels` (List[str], optional, default: `null`): Node labels to filter the entities channel.
+  - `community_labels` (List[str], optional, default: `null`): Hub labels for the communities channel.
+  - `expand` (str, optional, default: `"none"`): Allowed values: `"none"`, `"neighbors"`. Optional 1-hop expansion from graph channel seeds.
+  - `fusion` (str, optional, default: `null`): Fusion override. Allowed values: `"rrf"`, `"cc"`.
+  - `fusion_alpha` (float, optional, default: `null`, range: `0.0-1.0`)
+  - `rerank` (str, optional, default: `null`): `none` or `plugin:<name>`. Unknown plugin names return 400.
+  - `mode` (str, optional, default: `"default"`): Allowed values: `"default"`, `"catalog"`.
+  - `profile_stages` (bool, optional, default: `false`)
+  - `extras` (Dict[str, str], optional, default: `null`)
+  - `target` (str, optional, default: `null`): Optional USER uuid or id for query-gated rerank of retrieved hits.
+  ```json
   {
-    "results": [...]
+    "query": "hello world",
+    "brain_id": "default",
+    "k": 10,
+    "channels": ["passages", "entities"],
+    "node_labels": ["Document", "Author"],
+    "community_labels": ["Tech"],
+    "expand": "none",
+    "fusion": "rrf",
+    "fusion_alpha": 0.5,
+    "rerank": "plugin:cohere",
+    "mode": "default",
+    "profile_stages": false,
+    "extras": {},
+    "target": "user-123"
   }
+  ```
+- **Response (JSON):**
+  ```json
+  {
+    "hits": [
+      {
+        "id": "hit-789",
+        "score": 0.95,
+        "content": "Hello World example in Python",
+        "metadata": {"author": "Jane Doe"}
+      }
+    ],
+    "stage_timings": {"search": 0.08, "rerank": 0.12},
+    "channel_lists": {"passages": ["hit-789"]},
+    "facets": {"author": {"Jane Doe": 1}},
+    "node_ids": ["node-456"]
+  }
+  ```
