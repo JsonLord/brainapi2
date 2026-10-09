@@ -139,6 +139,9 @@ good-names = ["i", "j", "k", "ex", "Run", "_", "id", "db", "ai", "llm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: marks tests as requiring real external dependencies",
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

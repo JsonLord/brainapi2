@@ -138,15 +138,22 @@ def test_system_and_per_brain_pat_authorization():
 
 
 def test_hosted_facade_reuses_existing_route_handlers():
-    from src.services.api.routes import workspace_api
+    from src.services.api.routes.workspace_api import workspace_api_router
     from src.services.api.routes.ingest import ingest_data
     from src.services.api.routes.retrieve import get_context
     from src.services.api.routes.tasks import get_task
+    import inspect
 
-    endpoints = {route.endpoint for route in workspace_api.workspace_api_router.routes}
-    assert ingest_data in endpoints
-    assert get_context in endpoints
-    assert get_task in endpoints
+    handlers = set()
+    for route in workspace_api_router.routes:
+        if hasattr(route, "original_router"):
+            for sub_route in route.original_router.routes:
+                if hasattr(sub_route, "dependant") and hasattr(sub_route.dependant, "call"):
+                    handlers.add(inspect.unwrap(sub_route.dependant.call))
+
+    assert inspect.unwrap(ingest_data) in handlers
+    assert inspect.unwrap(get_context) in handlers
+    assert inspect.unwrap(get_task) in handlers
 
 
 def test_workspace_openapi_excludes_global_and_system_routes():
