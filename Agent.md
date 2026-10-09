@@ -17,7 +17,7 @@ This document serves as the guide and best practices for automated agents deploy
 - Always pass/read the HF access token from the environment (`HF_TOKEN` environment variable). Never hardcode secrets or token strings in repository files.
 
 ### Required Files
-- `Dockerfile` (exposing port `7860` and uvicorn running on port `7860`)
+- `Dockerfile` (exposing nginx on port `7860`; uvicorn stays internal on port `8000`)
 - `README.md` with Hugging Face YAML frontmatter:
   ```yaml
   ---
@@ -67,8 +67,17 @@ This document serves as the guide and best practices for automated agents deploy
 
 2. **Deploy Command:**
    ```bash
-   hf upload Leon4gr45/brain --repo-type=space
+   python deploy/hf_space.py stage --output /tmp/brainapi-hf-source
+   # Inspect/build the staged tree before uploading that same Git revision.
+   python deploy/hf_space.py upload --revision HEAD
    ```
+
+   This stages the complete committed Git tree, checks every required Docker
+   input, and verifies the uploaded Space files against the staged content.
+   Run it from the BrainAPI checkout with `huggingface_hub` installed and
+   `HF_TOKEN` set through secure environment settings. Do not upload a manually
+   selected list of changed files. The readiness wrapper must remain in the
+   Space repository alongside `scripts/preload_ollama_models.sh`.
 
 3. **Log Monitoring:**
    - **Build Logs (SSE):**
