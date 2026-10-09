@@ -56,7 +56,9 @@ def stage_revision(root: Path, revision: str, folder: Path) -> dict:
             if path.name in {".env", ".env.development", "gcp_credentials.json"}:
                 raise DeploymentError("Credential file is tracked in the deployment source: " + relative)
             files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
-    tracked = subprocess.check_output(["git", "-C", str(root), "ls-tree", "-rz", "--name-only", commit]).decode().split("\0")
+    tracked = subprocess.check_output(
+        ["git", "-C", str(root), "ls-tree", "-r", "-z", "--name-only", commit]
+    ).decode().split("\0")
     if set(files) != set(filter(None, tracked)):
         raise DeploymentError("Git archive differs from the complete tracked tree")
     return {"source_commit": commit, "file_count": len(files), "sha256": files}
