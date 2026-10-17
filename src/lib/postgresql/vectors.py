@@ -22,6 +22,7 @@ from pgvector.psycopg2 import register_vector
 from src.adapters.interfaces.embeddings import VectorStoreClient
 from src.config import config
 from src.constants.embeddings import EMBEDDING_STORES_SIZES, Vector
+from src.lib.embeddings.profile import EmbeddingProfileError, index_profile, require_matching_profile
 
 from ._provisioning import (
     borrow,
@@ -153,13 +154,14 @@ class PostgreSQLVectorStoreClient(VectorStoreClient):
     def _ensure_store(self, store: str, brain_id: str) -> None:
         if store not in EMBEDDING_STORES_SIZES:
             raise ValueError(f"Store {store} not available")
-        key = f"{brain_id}:{store}"
+        dimension = EMBEDDING_STORES_SIZES[store]
+        profile = index_profile(config, dimension)
+        key = f"{brain_id}:{store}:{json.dumps(profile, sort_keys=True)}"
         if key in self._initialized_stores:
             return
         with self._lock:
             if key in self._initialized_stores:
                 return
-            dimension = EMBEDDING_STORES_SIZES[store]
             table = _table_name(store)
             index_ddl = _vector_index_ddl(table, dimension)
             ddl = f"""
@@ -174,17 +176,25 @@ class PostgreSQLVectorStoreClient(VectorStoreClient):
             {index_ddl}
             """
             with self._connection(brain_id) as conn:
-                with conn.cursor() as cur:
+                # Roll back on any mismatch, including pooled connections.
+                with conn, conn.cursor() as cur:
+                    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("brainapi-embedding-profiles",))
                     existing_dim = _table_vector_dimension(cur, table)
                     if existing_dim is not None and existing_dim != dimension:
-                        logger.warning(
-                            "Recreating %s for brain %s: vector dimension %s -> %s",
-                            table,
-                            brain_id,
-                            existing_dim,
-                            dimension,
+                        raise EmbeddingProfileError(
+                            f"Embedding index/profile mismatch for {table}: existing dimension "
+                            f"{existing_dim}, configured {dimension}. Use a new empty brain/index "
+                            "or explicitly re-index; existing vectors will not be deleted."
                         )
-                        cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS embedding_profiles (
+                            store TEXT PRIMARY KEY,
+                            profile JSONB NOT NULL
+                        )
+                    """)
+                    cur.execute("SELECT profile FROM embedding_profiles WHERE store = %s", (store,))
+                    row = cur.fetchone()
+                    require_matching_profile(row[0] if row else None, profile, legacy_index=existing_dim is not None)
                     try:
                         cur.execute(ddl)
                     except Exception as exc:
@@ -196,6 +206,10 @@ class PostgreSQLVectorStoreClient(VectorStoreClient):
                                 f"{exc}"
                             ) from exc
                         raise
+                    cur.execute(
+                        "INSERT INTO embedding_profiles (store, profile) VALUES (%s, %s::jsonb) ON CONFLICT (store) DO NOTHING",
+                        (store, json.dumps(profile)),
+                    )
                 conn.commit()
             self._initialized_stores.add(key)
 

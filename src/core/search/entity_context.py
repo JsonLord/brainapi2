@@ -52,7 +52,7 @@ class EntityContext:
         text_contexts = set()
         natural_language_web = list()
 
-        target_embedding = embeddings_adapter.embed_text(self.target)
+        target_embedding = embeddings_adapter.embed_query(self.target)
         target_node_vs = vector_search.search_nodes(
             target_embedding.embeddings,
             brain_id=self.brain_id,

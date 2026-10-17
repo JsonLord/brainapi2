@@ -49,6 +49,9 @@ class _StubEmbeddingsAdapter:
     def embed_text(self, *_args, **_kwargs):
         return Vector(id="stub", embeddings=[], metadata={})
 
+    def embed_query(self, *_args, **_kwargs):
+        return Vector(id="stub", embeddings=[], metadata={})
+
 
 class _StubVectorStoreAdapter:
     def search_vectors(self, *_args, **_kwargs):
@@ -300,7 +303,7 @@ class EntityStatusControllerTests(unittest.IsolatedAsyncioTestCase):
         )()
         with (
             patch(
-                "src.services.api.controllers.entities.embeddings_adapter.embed_text",
+                "src.services.api.controllers.entities.embeddings_adapter.embed_query",
                 return_value=Vector(id="q", embeddings=[0.1, 0.2], metadata={}),
             ),
             patch(
@@ -369,7 +372,7 @@ class RetrieveControllerVectorSearchTests(unittest.IsolatedAsyncioTestCase):
         )()
         with (
             patch(
-                "src.services.api.controllers.retrieve.embeddings_adapter.embed_text",
+                "src.services.api.controllers.retrieve.embeddings_adapter.embed_query",
                 return_value=Vector(id="q", embeddings=[0.1, 0.2], metadata={}),
             ),
             patch(

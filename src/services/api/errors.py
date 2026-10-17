@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, JsonValue
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from src.lib.embeddings.profile import EmbeddingProfileError
 
 
 class ErrorInfo(BaseModel):
@@ -155,6 +156,17 @@ def install_error_handlers(app: FastAPI) -> None:
             request,
             status_code=422,
             detail=exc.errors(),
+        )
+
+    @app.exception_handler(EmbeddingProfileError)
+    async def embedding_profile_exception_handler(request: Request, exc: EmbeddingProfileError):
+        return error_response(
+            request,
+            status_code=503,
+            detail=str(exc),
+            code="EMBEDDING_PROFILE_MISMATCH",
+            message="The configured embedding profile does not match this index.",
+            resolution="Use a new empty brain/index or explicitly re-index its source texts with the configured model.",
         )
 
     @app.exception_handler(Exception)

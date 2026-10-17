@@ -124,6 +124,21 @@ class EmbeddingsAdapter:
         except (EmbeddingError, RetryError) as e:
             return self.failure_strategy.on_single_failure(self._to_embedding_error(e))
 
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception_type(EmbeddingError),
+    )
+    def _embed_query_with_retry(self, text: str) -> list[float]:
+        return self.embeddings.embed_query(text)
+
+    def embed_query(self, text: str) -> Vector:
+        """Apply provider-specific query steering before the shared vector transform."""
+        try:
+            return Vector(id=str(uuid.uuid4()), embeddings=self._embed_query_with_retry(text), metadata={})
+        except (EmbeddingError, RetryError) as e:
+            return self.failure_strategy.on_single_failure(self._to_embedding_error(e))
+
     def embed_texts(self, texts: list[str]) -> list[Vector]:
         """
         Embed a list of texts and return a list of vectors.

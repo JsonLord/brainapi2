@@ -146,7 +146,7 @@ class JanitorAgentSearchEntitiesTool(BaseTool):
             )
             founds.extend(kg_results.results)
             try:
-                query_vector = self.embeddings.embed_text(_query)
+                query_vector = self.embeddings.embed_query(_query)
                 if query_vector.embeddings and len(query_vector.embeddings) > 0:
                     v_results = self.vector_store.search_vectors(
                         query_vector.embeddings,

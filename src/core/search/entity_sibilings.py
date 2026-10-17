@@ -417,7 +417,7 @@ class EntitySinergyRetriever:
             for neighbor in _neighbors:
                 _upsert_connection(seed_node, neighbor[1], neighbor[0])
 
-        target_embedding = embeddings_adapter.embed_text(target)
+        target_embedding = embeddings_adapter.embed_query(target)
         target_node_vs = vector_search.search_nodes(
             target_embedding.embeddings,
             brain_id=self.brain_id,

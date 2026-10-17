@@ -385,35 +385,54 @@ class EmbeddingsConfig:
     Configuration class for the Embeddings configuration.
     """
 
-    def __init__(self, mode: str):
+    def __init__(self, mode: str, *, provider: str = "", model: str = ""):
         self.local_model = os.getenv("EMBEDDINGS_LOCAL_MODEL", "BAAI/bge-small-en-v1.5")
         self.small_model = os.getenv("EMBEDDINGS_SMALL_MODEL", "BAAI/bge-small-en-v1.5")
+
+        gemma = provider == "ollama" and model == "embeddinggemma-2:270m"
+        self.profile = os.getenv("EMBEDDING_PROFILE", "embeddinggemma2-text-v1" if gemma else "")
+        default_dimension = 512 if gemma else 384
 
         self.embedding_nodes_dimension = (
             int(os.getenv("EMBEDDING_NODES_DIMENSION"))
             if os.getenv("EMBEDDING_NODES_DIMENSION")
-            else 384
+            else default_dimension
         )
         self.embedding_triplets_dimension = (
             int(os.getenv("EMBEDDING_TRIPLETS_DIMENSION"))
             if os.getenv("EMBEDDING_TRIPLETS_DIMENSION")
-            else 384
+            else default_dimension
         )
         self.embedding_observations_dimension = (
             int(os.getenv("EMBEDDING_OBSERVATIONS_DIMENSION"))
             if os.getenv("EMBEDDING_OBSERVATIONS_DIMENSION")
-            else 384
+            else default_dimension
         )
         self.embedding_data_dimension = (
             int(os.getenv("EMBEDDING_DATA_DIMENSION"))
             if os.getenv("EMBEDDING_DATA_DIMENSION")
-            else 384
+            else default_dimension
         )
         self.embedding_relationships_dimension = (
             int(os.getenv("EMBEDDING_RELATIONSHIPS_DIMENSION"))
             if os.getenv("EMBEDDING_RELATIONSHIPS_DIMENSION")
-            else 384
+            else default_dimension
         )
+        self.native_dimension = int(os.getenv("EMBEDDING_NATIVE_DIMENSION", "768" if gemma else str(self.embedding_data_dimension)))
+        self.mrl_dimension = int(os.getenv("EMBEDDING_MRL_DIMENSION", "512" if gemma else "0"))
+        dimensions = {
+            self.embedding_nodes_dimension, self.embedding_triplets_dimension,
+            self.embedding_observations_dimension, self.embedding_data_dimension,
+            self.embedding_relationships_dimension,
+        }
+        if min(dimensions) < 1 or self.native_dimension < 1 or self.mrl_dimension < 0:
+            raise ValueError("Embedding dimensions must be positive (MRL may be zero to disable it)")
+        if gemma or self.profile == "embeddinggemma2-text-v1":
+            if not (gemma and self.profile == "embeddinggemma2-text-v1" and self.native_dimension == 768
+                    and self.mrl_dimension == 512 and dimensions == {512}):
+                raise ValueError("embeddinggemma2-text-v1 requires ollama embeddinggemma-2:270m, native 768, MRL 512 and all stored dimensions 512; use a new index when changing profiles")
+        elif self.mrl_dimension:
+            raise ValueError("MRL is only supported by the qualified embeddinggemma2-text-v1 profile")
 
 
 class MongoConfig:
@@ -456,7 +475,7 @@ class OllamaConfig:
         self.llm_small_model = os.getenv("OLLAMA_LLM_SMALL_MODEL", "llama3.2")
         self.llm_large_model = os.getenv("OLLAMA_LLM_LARGE_MODEL", "llama3.2")
         self.embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL") or os.getenv(
-            "EMBEDDINGS_LOCAL_MODEL", "qwen3-embedding:0.6b"
+            "EMBEDDINGS_LOCAL_MODEL", "embeddinggemma-2:270m"
         )
         self.embedding_keep_alive = os.getenv("OLLAMA_EMBEDDING_KEEP_ALIVE", "10m")
         self.num_threads = int(os.getenv("OLLAMA_NUM_THREADS", "2"))
@@ -599,7 +618,10 @@ class Config:
             self.deepseek.validate_llm(require_large=use_deepseek_large)
 
         self.ollama = OllamaConfig() if use_ollama else None
-        self.embeddings = EmbeddingsConfig(mode=self.models_mode)
+        self.embeddings = EmbeddingsConfig(
+            mode=self.models_mode, provider=self.embeddings_provider,
+            model=self.ollama.embedding_model if self.embeddings_provider == "ollama" else "",
+        )
 
         self.vector_db = os.getenv("VECTOR_DB", "milvus")
         self.data_db = os.getenv("DATA_DB", "mongo")

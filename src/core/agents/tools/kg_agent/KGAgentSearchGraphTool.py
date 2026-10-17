@@ -109,7 +109,7 @@ class KGAgentSearchGraphTool(BaseTool):
         v_results: list[Vector] = []
 
         if query:
-            query_embedding = self.embeddings.embed_text(query)
+            query_embedding = self.embeddings.embed_query(query)
             v_triplets_results = self.vector_store.search_vectors(
                 query_embedding.embeddings,
                 store="triplets",

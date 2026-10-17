@@ -10,7 +10,7 @@ import urllib.request
 def wait_for_ollama(timeout=120):
     host = os.environ.get("OLLAMA_HOST", "127.0.0.1")
     port = os.environ.get("OLLAMA_PORT", "11434")
-    model = os.environ.get("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b")
+    model = os.environ.get("OLLAMA_EMBEDDING_MODEL", "embeddinggemma-2:270m")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

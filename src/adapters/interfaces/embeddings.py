@@ -18,6 +18,10 @@ class EmbeddingsClient(ABC):
     Abstract base class for embeddings clients.
     """
 
+    def embed_query(self, text: str) -> list[float]:
+        """Providers without asymmetric task instructions use the document path."""
+        return self.embed_text(text)
+
     @abstractmethod
     def embed_text(self, text: str) -> list[float]:
         """

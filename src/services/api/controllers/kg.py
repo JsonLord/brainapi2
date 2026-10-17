@@ -27,7 +27,7 @@ async def get_hops(
 
     Currently only supports 2nd degree hops.
     """
-    text_embeddings = embeddings_adapter.embed_text(query)
+    text_embeddings = embeddings_adapter.embed_query(query)
     data_vectors = vector_search.search_nodes(
         text_embeddings.embeddings,
         brain_id=brain_id,

@@ -15,17 +15,21 @@ export EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-ollama}"
 export OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1}"
 export OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 export OLLAMA_MODELS="${OLLAMA_MODELS:-/opt/ollama-models}"
-export OLLAMA_EMBEDDING_MODEL="${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}"
-export OLLAMA_LLM_SMALL_MODEL="${OLLAMA_LLM_SMALL_MODEL:-qwen3:0.6b}"
-export OLLAMA_LLM_LARGE_MODEL="${OLLAMA_LLM_LARGE_MODEL:-qwen3:0.6b}"
+export OLLAMA_NO_CLOUD="${OLLAMA_NO_CLOUD:-true}"
+export OLLAMA_EMBEDDING_MODEL="${OLLAMA_EMBEDDING_MODEL:-embeddinggemma-2:270m}"
 export OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL:-1}"
 export OLLAMA_MAX_LOADED_MODELS="${OLLAMA_MAX_LOADED_MODELS:-1}"
 export OLLAMA_NUM_THREADS="${OLLAMA_NUM_THREADS:-2}"
 export OLLAMA_EMBEDDING_KEEP_ALIVE="${OLLAMA_EMBEDDING_KEEP_ALIVE:-10m}"
-# Qwen3 Embedding 0.6B emits 1024-dimensional vectors.
+# The qualified text-only Gemma profile is native 768 -> MRL 512 -> L2.
+export EMBEDDING_PROFILE="${EMBEDDING_PROFILE:-embeddinggemma2-text-v1}"
+export EMBEDDING_NATIVE_DIMENSION="${EMBEDDING_NATIVE_DIMENSION:-768}"
+export EMBEDDING_MRL_DIMENSION="${EMBEDDING_MRL_DIMENSION:-512}"
+export SEARCH_ENABLED="${SEARCH_ENABLED:-true}"
+export CONTEXT_PASSAGE_MODE="${CONTEXT_PASSAGE_MODE:-hybrid}"
 for dimension in NODES TRIPLETS OBSERVATIONS DATA RELATIONSHIPS; do
     variable="EMBEDDING_${dimension}_DIMENSION"
-    export "$variable=${!variable:-1024}"
+    export "$variable=${!variable:-512}"
 done
 
 export POSTGRES_HOST="${POSTGRES_HOST:-127.0.0.1}"
@@ -69,6 +73,13 @@ export REDIS_PASSWORD
 
 export CELERY_BROKER_URL="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
 export CELERY_RESULT_BACKEND="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
+
+# docker exec starts with the image environment, not this script's exports.
+# Load the same runtime defaults/credentials for qualification without restarting
+# or reinitializing the already-running application services.
+if [ "${1:-}" = "--qualify" ]; then
+    exec /app/.venv/bin/python /app/scripts/qualify_hf_embeddings.py
+fi
 
 # Print non-secret startup diagnostics
 echo "=================================================="

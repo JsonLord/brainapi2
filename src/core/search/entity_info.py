@@ -189,8 +189,8 @@ class EventSynergyRetriever:
         """
 
         with profile_stage("dossiers.embed", embeds=2):
-            query_embedding = embeddings_adapter.embed_text(query)
-            target_embedding = embeddings_adapter.embed_text(target)
+            query_embedding = embeddings_adapter.embed_query(query)
+            target_embedding = embeddings_adapter.embed_query(target)
 
         with profile_stage("dossiers.resolve_target"):
             target_node_vs = vector_search.search_nodes(
