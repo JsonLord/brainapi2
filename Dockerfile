@@ -112,8 +112,30 @@ RUN if [ "$INSTALL_LOCAL_ML" = "true" ]; then \
     fi \
     && rm -rf /root/.cache /tmp/*
 
+# Validate small runtime inputs before combining them with large dependencies.
+FROM debian:bookworm-slim AS runtime-config
+WORKDIR /runtime/app
+COPY deploy/ ./deploy/
+COPY entrypoint.sh ./
+COPY scripts/ ./scripts/
+RUN test -f scripts/start_with_ollama.py \
+    && test -f scripts/preload_ollama_models.sh \
+    && chmod +x entrypoint.sh
+
+# Assemble files on an empty root, avoiding a full PostgreSQL/Python root copy
+# for every small COPY when the cloud Docker daemon uses VFS snapshots.
+FROM scratch AS runtime-files
+COPY --from=builder /usr/lib/postgresql/15/lib/vector.so /usr/lib/postgresql/15/lib/
+COPY --from=builder /usr/share/postgresql/15/extension/vector* /usr/share/postgresql/15/extension/
+COPY --from=runtime-config /runtime/ /
+COPY --from=console-builder /console/dist /app/console/dist
+COPY --from=builder /app /app
+COPY --from=ollama-runtime / /
+
 # ── Stage 3: runtime ────────────────────────────────────────
 FROM python:3.11.14-slim-bookworm
+
+WORKDIR /app
 
 ARG BUILD_DATE
 ARG BUILD_SHA
@@ -144,25 +166,10 @@ RUN apt-get update && apt-get upgrade -y \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip uninstall -y setuptools wheel \
-    && groupadd -r appuser && useradd -r -g appuser -m appuser
-
-WORKDIR /app
-
-COPY --from=builder /usr/lib/postgresql/15/lib/vector.so /usr/lib/postgresql/15/lib/
-COPY --from=builder /usr/share/postgresql/15/extension/vector* /usr/share/postgresql/15/extension/
-COPY --from=console-builder /console/dist /app/console/dist
-COPY deploy/ ./deploy/
-COPY entrypoint.sh ./
-COPY scripts/ ./scripts/
-RUN test -f scripts/start_with_ollama.py \
-    && test -f scripts/preload_ollama_models.sh \
-    && chmod +x /app/entrypoint.sh \
+    && groupadd -r appuser && useradd -r -g appuser -m appuser \
     && mkdir -p /app/plugins && chown appuser:appuser /app/plugins
 
-# /app in the builder contains only committed source, manifests, dependencies and
-# build caches. Copy large artifacts last and together to bound VFS disk usage.
-COPY --from=builder /app /app
-COPY --from=ollama-runtime / /
+COPY --from=runtime-files / /
 VOLUME ["/app/plugins"]
 
 EXPOSE 7860
