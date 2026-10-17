@@ -39,6 +39,12 @@ RUN --mount=type=secret,id=proxy_ca \
     OLLAMA_EMBEDDING_MODEL="$OLLAMA_EMBEDDING_MODEL" OLLAMA_CHAT_MODEL="$OLLAMA_CHAT_MODEL" \
     bash /tmp/preload_ollama_models.sh
 
+# Assemble CPU/model files once, avoiding repeated large runtime snapshots on VFS.
+FROM scratch AS ollama-runtime
+COPY --from=ollama-models /bin/ollama /usr/bin/ollama
+COPY --from=ollama-models /usr/lib/ollama /usr/lib/ollama
+COPY --from=ollama-models /opt/ollama-models /opt/ollama-models
+
 # ── Stage 1: Console builder ────────────────────────────────
 FROM node:22.22.0-bookworm-slim AS console-builder
 
@@ -54,12 +60,7 @@ RUN npm run build
 # ── Stage 2: Python builder ─────────────────────────────────
 FROM python:3.11.14-slim-bookworm AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    git \
-    postgresql-15 \
-    postgresql-server-dev-15 \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
 ARG INSTALL_LOCAL_ML=false
 
@@ -76,15 +77,17 @@ ENV PYTHONUNBUFFERED=1 \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
 
 RUN --mount=type=secret,id=proxy_ca \
-    if [ -f /run/secrets/proxy_ca ]; then export PIP_CERT=/run/secrets/proxy_ca; fi; \
-    pip install --no-cache-dir poetry==2.1.3
-
-WORKDIR /app
-
-RUN --mount=type=secret,id=proxy_ca \
-    if [ -f /run/secrets/proxy_ca ]; then export GIT_SSL_CAINFO=/run/secrets/proxy_ca; fi; \
-    git clone --branch v0.5.1 https://github.com/pgvector/pgvector.git /tmp/pgvector \
-    && cd /tmp/pgvector && make && make install
+    set -eu; \
+    if [ -f /run/secrets/proxy_ca ]; then \
+        export PIP_CERT=/run/secrets/proxy_ca GIT_SSL_CAINFO=/run/secrets/proxy_ca; \
+    fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
+        build-essential git postgresql-15 postgresql-server-dev-15 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir poetry==2.1.3 \
+    && git clone --branch v0.5.1 https://github.com/pgvector/pgvector.git /tmp/pgvector \
+    && cd /tmp/pgvector && make && make install \
+    && rm -rf /tmp/pgvector /root/.cache
 
 COPY pyproject.toml poetry.lock ./
 
@@ -147,23 +150,19 @@ WORKDIR /app
 
 COPY --from=builder /usr/lib/postgresql/15/lib/vector.so /usr/lib/postgresql/15/lib/
 COPY --from=builder /usr/share/postgresql/15/extension/vector* /usr/share/postgresql/15/extension/
-COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/.cache /app/.cache
-COPY --from=builder /app/src /app/src
-COPY --from=builder /app/pyproject.toml /app/
-COPY --from=ollama-models /bin/ollama /bin/ollama
-COPY --from=ollama-models /usr/lib/ollama /usr/lib/ollama
-COPY --from=ollama-models /opt/ollama-models /opt/ollama-models
 COPY --from=console-builder /console/dist /app/console/dist
 COPY deploy/ ./deploy/
 COPY entrypoint.sh ./
 COPY scripts/ ./scripts/
 RUN test -f scripts/start_with_ollama.py \
-    && test -f scripts/preload_ollama_models.sh
+    && test -f scripts/preload_ollama_models.sh \
+    && chmod +x /app/entrypoint.sh \
+    && mkdir -p /app/plugins && chown appuser:appuser /app/plugins
 
-RUN chmod +x /app/entrypoint.sh
-
-RUN mkdir -p /app/plugins && chown appuser:appuser /app/plugins
+# /app in the builder contains only committed source, manifests, dependencies and
+# build caches. Copy large artifacts last and together to bound VFS disk usage.
+COPY --from=builder /app /app
+COPY --from=ollama-runtime / /
 VOLUME ["/app/plugins"]
 
 EXPOSE 7860
