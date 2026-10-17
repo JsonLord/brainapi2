@@ -4,6 +4,7 @@ from typing import Any, Optional
 from fastapi import HTTPException
 
 from src.config import config
+from src.lib.embeddings.profile import EmbeddingProfileError
 from src.core.search.catalog_graph import node_id_from_passage_text
 from src.core.search.personalize import personalize_ranked_ids
 from src.core.search.graph_channels import (
@@ -292,6 +293,8 @@ async def _search(request: SearchRequestBody) -> SearchResponse:
                     query_vector=query_vector,
                     graph_channels=graph_channels,
                 )
+            except EmbeddingProfileError:
+                raise
             except Exception:
                 graph_hits = []
         if getattr(config, "search_literal_fill", False):

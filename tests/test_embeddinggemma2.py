@@ -141,3 +141,33 @@ def test_fresh_postgres_schema_records_profile_and_512_dimensions(gemma, monkeyp
     metadata = [json.loads(call.args[1][1]) for call in executed if 'INSERT INTO embedding_profiles' in call.args[0]]
     assert len(metadata) == 5
     assert all(profile['model'] == 'embeddinggemma-2:270m' and profile['stored_dimension'] == 512 for profile in metadata)
+
+
+def test_profile_mismatch_has_actionable_http_error():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from src.services.api.errors import install_error_handlers
+    app = FastAPI()
+    install_error_handlers(app)
+    @app.get('/query')
+    def query():
+        raise EmbeddingProfileError('Existing Qwen index conflicts with configured Gemma profile')
+    response = TestClient(app).get('/query')
+    assert response.status_code == 503
+    assert response.json()['error']['code'] == 'EMBEDDING_PROFILE_MISMATCH'
+    assert 'Qwen' in response.json()['detail']
+    assert 're-index' in response.json()['error']['resolution']
+
+
+def test_graph_only_search_does_not_hide_profile_mismatch(monkeypatch):
+    import asyncio
+    from src.constants.embeddings import Vector
+    from src.services.api.constants.requests import SearchRequestBody
+    from src.services.api.controllers import search
+    monkeypatch.setattr(search.config, 'search_enabled', True)
+    embeddings = MagicMock()
+    embeddings.embed_query.return_value = Vector(id='q', embeddings=[0.1], metadata={})
+    monkeypatch.setattr(search, 'embeddings_adapter', embeddings)
+    monkeypatch.setattr(search, '_collect_graph_hits', MagicMock(side_effect=EmbeddingProfileError('incompatible model')))
+    with pytest.raises(EmbeddingProfileError, match='incompatible model'):
+        asyncio.run(search.search(SearchRequestBody(query='launch code', channels=['entities'])))
