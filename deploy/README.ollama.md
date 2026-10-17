@@ -79,7 +79,9 @@ steps using BuildKit secrets; never disable TLS checks or bake a session CA into
 the production image. An environment failure is not a successful image build.
 
 Run the image with a development `BRAINPAT_TOKEN`, then execute
-`python scripts/qualify_hf_embeddings.py` **inside that image**. It checks the
+`/app/entrypoint.sh --qualify` **inside that image**. This loads the same
+runtime defaults and internal database credentials as the services; a plain
+`docker exec ... python` does not inherit entrypoint exports. It checks the
 baked model list, raw 768d and transformed 512d finite embeddings, all five fresh
 schema dimensions, real asynchronous workspace ingestion, persisted vectors,
 POST search/context retrieval, and isolation between two workspaces. Failures

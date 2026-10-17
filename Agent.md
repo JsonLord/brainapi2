@@ -191,9 +191,11 @@ This document serves as the guide and best practices for automated agents deploy
     "hits": [
       {
         "id": "hit-789",
+        "channel": "passages",
         "score": 0.95,
-        "content": "Hello World example in Python",
-        "metadata": {"author": "Jane Doe"}
+        "scores": {"dense": 0.95, "bm25": 4.2, "rrf": 0.033},
+        "snippet": "Hello World example in Python",
+        "extras": {"author": "Jane Doe"}
       }
     ],
     "stage_timings": {"search": 0.08, "rerank": 0.12},
@@ -211,5 +213,6 @@ index/profile mismatches must fail without dropping or reusing old vectors.
 The baseline image preloads only Gemma; chat and reranking remain optional.
 See `deploy/env.hf.cpu.example` and `deploy/README.ollama.md`. Before production,
 commit and stage the exact source, build that staged tree, and run
-`scripts/qualify_hf_embeddings.py` inside the local image. Do not upload a
+`/app/entrypoint.sh --qualify` inside the local image (it runs the qualification
+script with the service configuration). Do not upload a
 production deployment until both the full build and real qualification pass.

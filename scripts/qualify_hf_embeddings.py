@@ -1,4 +1,4 @@
-"""Run inside a local pre-production image; any failed check exits nonzero."""
+"""Run through entrypoint.sh --qualify inside a local pre-production image."""
 
 import json
 import math
@@ -46,6 +46,12 @@ def qualify():
         response.raise_for_status()
         raw = response.json()['embeddings'][0]
         check(len(raw) == 768 and all(math.isfinite(x) for x in raw), 'Invalid native embedding')
+        response = ollama.post('/api/embed', json={
+            'model': config.ollama.embedding_model,
+            'input': 'task: search result | query: ' + 'hello ' * 9000,
+            'truncate': False, 'options': {'num_ctx': 8192, 'num_thread': 2}})
+        check(response.status_code == 400 and 'context' in response.json().get('error', '').lower(),
+              'Ollama did not enforce the 8192-token input limit')
     client = OllamaEmbeddingsClient()
     try:
         for vector in (client.embed_text('The launch code is violet.'), client.embed_query('launch code')):
@@ -105,7 +111,7 @@ def qualify():
             response.raise_for_status()
             body = response.json()
             if endpoint == 'search':
-                check(any(marker in str(hit.get('content', '')) for hit in body['hits']), 'Search did not retrieve the unique fact')
+                check(any(marker in hit['snippet'] for hit in body['hits']), 'Search did not retrieve the unique fact')
             else:
                 check(marker in json.dumps(body), 'Context did not include the unique fact')
             other_slug, _, other_pat = workspaces[1]
@@ -129,7 +135,8 @@ def qualify():
         finally:
             config.ollama.embedding_model = previous
     print(json.dumps({'result': 'passed', 'model': config.ollama.embedding_model,
-                      'raw_dimension': 768, 'stored_dimension': 512, 'schema_dimensions': dict(EMBEDDING_STORES_SIZES),
+                      'raw_dimension': 768, 'stored_dimension': 512, 'context_limit': 8192,
+                      'schema_dimensions': dict(EMBEDDING_STORES_SIZES),
                       'worker': 'completed', 'search': 'unique fact retrieved', 'context': 'unique fact present',
                       'workspace_isolation': 'passed', 'model_mismatch': 'rejected',
                       'qualification_workspaces': [w[0] for w in workspaces]}))

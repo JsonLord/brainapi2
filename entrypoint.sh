@@ -15,6 +15,7 @@ export EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-ollama}"
 export OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1}"
 export OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 export OLLAMA_MODELS="${OLLAMA_MODELS:-/opt/ollama-models}"
+export OLLAMA_NO_CLOUD="${OLLAMA_NO_CLOUD:-true}"
 export OLLAMA_EMBEDDING_MODEL="${OLLAMA_EMBEDDING_MODEL:-embeddinggemma-2:270m}"
 export OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL:-1}"
 export OLLAMA_MAX_LOADED_MODELS="${OLLAMA_MAX_LOADED_MODELS:-1}"
@@ -72,6 +73,13 @@ export REDIS_PASSWORD
 
 export CELERY_BROKER_URL="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
 export CELERY_RESULT_BACKEND="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
+
+# docker exec starts with the image environment, not this script's exports.
+# Load the same runtime defaults/credentials for qualification without restarting
+# or reinitializing the already-running application services.
+if [ "${1:-}" = "--qualify" ]; then
+    exec /app/.venv/bin/python /app/scripts/qualify_hf_embeddings.py
+fi
 
 # Print non-secret startup diagnostics
 echo "=================================================="
