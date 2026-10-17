@@ -1,7 +1,26 @@
 # syntax=docker/dockerfile:1.4
 
-# Pin verified Ollama artifacts; keep CUDA/Vulkan libraries out of the CPU Space.
-FROM ollama/ollama:0.40.1@sha256:69f27594d8127cb43db1edcafa5e2d3cd8f88bdbc54a2cf3ceb11b8d138a24b1 AS ollama-source
+# Pin official release checksums and extract only the CPU runtime. Importing the
+# GPU image duplicates gigabytes under VFS before the runtime COPY can filter it.
+FROM debian:bookworm-slim AS ollama-source
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl zstd \
+    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=secret,id=proxy_ca \
+    set -eu; \
+    if [ -f /run/secrets/proxy_ca ]; then export CURL_CA_BUNDLE=/run/secrets/proxy_ca; fi; \
+    case "$TARGETARCH" in \
+        amd64) ollama_sha=c164ab8b1b28e2a247c29719b8e404c423c5b83ae64c3ab4e59d50c7ff7fc5e0 ;; \
+        arm64) ollama_sha=0a279d9428ad17b06fdb7dddf3b059b2c148433585fa3b30676a102fc459bb9f ;; \
+        *) echo "Unsupported Ollama CPU architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl --fail --location --retry 3 \
+        "https://github.com/ollama/ollama/releases/download/v0.40.6/ollama-linux-${TARGETARCH}.tar.zst" \
+        --output /tmp/ollama.tar.zst; \
+    echo "$ollama_sha  /tmp/ollama.tar.zst" | sha256sum --check --strict; \
+    tar --zstd --extract --file /tmp/ollama.tar.zst --directory /usr \
+        --wildcards --no-wildcards-match-slash --no-recursion 'bin/ollama' 'lib/ollama/*'; \
+    rm /tmp/ollama.tar.zst
 
 FROM debian:bookworm-slim AS ollama-models
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -11,11 +30,13 @@ COPY --from=ollama-source /bin/ollama /bin/ollama
 COPY --from=ollama-source /usr/lib/ollama/*.so* /usr/lib/ollama/
 COPY --from=ollama-source /usr/lib/ollama/llama-server /usr/lib/ollama/llama-server
 COPY --from=ollama-source /usr/lib/ollama/*LICENSE* /usr/lib/ollama/
-ARG OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
-ARG OLLAMA_CHAT_MODEL=qwen3:0.6b
+ARG OLLAMA_EMBEDDING_MODEL=embeddinggemma-2:270m
+ARG OLLAMA_CHAT_MODEL=
 ENV OLLAMA_MODELS=/opt/ollama-models OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 OLLAMA_NO_CLOUD=true
 COPY scripts/preload_ollama_models.sh /tmp/preload_ollama_models.sh
-RUN OLLAMA_EMBEDDING_MODEL="$OLLAMA_EMBEDDING_MODEL" OLLAMA_CHAT_MODEL="$OLLAMA_CHAT_MODEL" \
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
+    OLLAMA_EMBEDDING_MODEL="$OLLAMA_EMBEDDING_MODEL" OLLAMA_CHAT_MODEL="$OLLAMA_CHAT_MODEL" \
     bash /tmp/preload_ollama_models.sh
 
 # ── Stage 1: Console builder ────────────────────────────────
@@ -23,7 +44,9 @@ FROM node:22.22.0-bookworm-slim AS console-builder
 
 WORKDIR /console
 COPY console/package.json console/package-lock.json ./
-RUN npm ci
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    npm ci
 COPY console/ ./
 RUN chmod +x node_modules/.bin/* 2>/dev/null || true
 RUN npm run build
@@ -52,16 +75,24 @@ ENV PYTHONUNBUFFERED=1 \
     SENTENCE_TRANSFORMERS_HOME=/app/.cache \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
 
-RUN pip install --no-cache-dir poetry==2.1.3
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export PIP_CERT=/run/secrets/proxy_ca; fi; \
+    pip install --no-cache-dir poetry==2.1.3
 
 WORKDIR /app
 
-RUN git clone --branch v0.5.1 https://github.com/pgvector/pgvector.git /tmp/pgvector \
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export GIT_SSL_CAINFO=/run/secrets/proxy_ca; fi; \
+    git clone --branch v0.5.1 https://github.com/pgvector/pgvector.git /tmp/pgvector \
     && cd /tmp/pgvector && make && make install
 
 COPY pyproject.toml poetry.lock ./
 
-RUN if [ "$INSTALL_LOCAL_ML" = "true" ]; then \
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then \
+        export SSL_CERT_FILE=/run/secrets/proxy_ca PIP_CERT=/run/secrets/proxy_ca REQUESTS_CA_BUNDLE=/run/secrets/proxy_ca; \
+    fi; \
+    if [ "$INSTALL_LOCAL_ML" = "true" ]; then \
         poetry sync --no-root --only main --with local-ml; \
     else \
         poetry sync --no-root --only main; \

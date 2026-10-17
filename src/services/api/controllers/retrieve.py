@@ -423,7 +423,7 @@ async def retrieve_data(
         preferred_entities = []
 
     def _get_data():
-        text_embeddings = embeddings_adapter.embed_text(text)
+        text_embeddings = embeddings_adapter.embed_query(text)
 
         data_vectors = vector_search.search_data(
             text_embeddings.embeddings,
@@ -526,7 +526,7 @@ async def retrieve_neighbors(
         node = await asyncio.to_thread(_get_node)
         target_node_types = node.labels
 
-        looking_for_v = embeddings_adapter.embed_text(look_for) if look_for else None
+        looking_for_v = embeddings_adapter.embed_query(look_for) if look_for else None
 
         # ---------------------------------------------------------
         # ===== Getting 1st degree neighbors of the main node =====
@@ -1581,7 +1581,7 @@ def _stabilize_seed_hits(
 def _seed_nodes_for_text(text: str, brain_id: str) -> list[tuple[str, float, str]]:
     """Return (node_uuid, distance, entity_name) seeds from nodes + relationships."""
     with profile_stage("embed.query"):
-        text_embeddings = embeddings_adapter.embed_text(text)
+        text_embeddings = embeddings_adapter.embed_query(text)
     embeddings = text_embeddings.embeddings
     seeds: list[tuple[str, float, str]] = []
 
@@ -1717,7 +1717,7 @@ def _retrieve_passages(
         id_to_distance: dict[str, float] = {}
         if use_dense:
             with profile_stage("embed.query"):
-                text_embeddings = embeddings_adapter.embed_text(text)
+                text_embeddings = embeddings_adapter.embed_query(text)
             with profile_stage("vector.search_data", k=max(limit, _PASSAGE_K)):
                 vector_ids, id_to_distance = collect_dense_passages(
                     vector_search,

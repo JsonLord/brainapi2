@@ -547,3 +547,9 @@ Contact [hello@lumen-labs.ai](mailto:hello@lumen-labs.ai) for a commercial licen
 <p align="center">
   <sub>Built with ❤️ by <a href="https://github.com/lumen-labs">Lumen Labs</a></sub>
 </p>
+
+### Hugging Face CPU embeddings
+
+The default CPU image uses `embeddinggemma-2:270m` through Ollama, with validated
+768-dimensional native vectors truncated and normalized to 512 for pgvector.
+See [the CPU deployment contract and qualification steps](deploy/README.ollama.md).

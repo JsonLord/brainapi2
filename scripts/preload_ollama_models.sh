@@ -21,7 +21,7 @@ if [ "$ready" != true ]; then
     echo 'Ollama did not become ready during model preload' >&2
     exit 1
 fi
-ollama pull "${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}"
-if [ -n "${OLLAMA_CHAT_MODEL-qwen3:0.6b}" ]; then
-    ollama pull "${OLLAMA_CHAT_MODEL-qwen3:0.6b}"
+ollama pull "${OLLAMA_EMBEDDING_MODEL:-embeddinggemma-2:270m}"
+if [ -n "${OLLAMA_CHAT_MODEL:-}" ]; then
+    ollama pull "${OLLAMA_CHAT_MODEL:-}"
 fi

@@ -56,7 +56,7 @@ class SearchApiTests(unittest.IsolatedAsyncioTestCase):
         )
         bm25_chunk = TextChunk(id="chunk-bm25", text="counseling license renewal")
         mock_embeddings = MagicMock()
-        mock_embeddings.embed_text.return_value = Vector(
+        mock_embeddings.embed_query.return_value = Vector(
             id="q", embeddings=[0.1, 0.2], metadata={}
         )
         mock_vs = MagicMock()
@@ -85,7 +85,7 @@ class SearchApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("chunk-dense", ids)
         self.assertIn("chunk-bm25", ids)
         self.assertTrue(any(hit.scores.rrf for hit in response.hits))
-        mock_embeddings.embed_text.assert_called_once_with("license")
+        mock_embeddings.embed_query.assert_called_once_with("license")
         self.assertIsNotNone(response.stage_timings)
         stage_names = [s["stage"] for s in response.stage_timings.get("stages", [])]
         self.assertIn("embed.query", stage_names)
@@ -98,7 +98,7 @@ class SearchApiTests(unittest.IsolatedAsyncioTestCase):
         from src.services.api.controllers import search as search_mod
 
         mock_embeddings = MagicMock()
-        mock_embeddings.embed_text.return_value = Vector(
+        mock_embeddings.embed_query.return_value = Vector(
             id="q", embeddings=[0.1], metadata={}
         )
         mock_vs = MagicMock()
@@ -146,7 +146,7 @@ class SearchApiTests(unittest.IsolatedAsyncioTestCase):
             response = await search_mod.search(SearchRequestBody(query="license", k=5))
 
         self.assertEqual([hit.id for hit in response.hits], ["lex"])
-        mock_embeddings.embed_text.assert_not_called()
+        mock_embeddings.embed_query.assert_not_called()
         mock_vs.search_data.assert_not_called()
         self.assertEqual(response.hits[0].scores.bm25, 3.1)
         self.assertIsNone(response.hits[0].node_id)
@@ -271,7 +271,7 @@ class SearchApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(missed.facets)
         self.assertEqual({hit.id for hit in unfiltered.hits}, {"it-1", "it-2"})
         self.assertEqual(unfiltered.hits[0].channel, "passages")
-        mock_embeddings.embed_text.assert_not_called()
+        mock_embeddings.embed_query.assert_not_called()
 
     def test_literal_overlap_and_frozen_head_helpers(self):
         from src.core.search.hybrid import (
@@ -319,7 +319,7 @@ class SearchApiTests(unittest.IsolatedAsyncioTestCase):
             (TextChunk(id="lex", text="license board"), 3.1)
         ]
         mock_embeddings = MagicMock()
-        mock_embeddings.embed_text.return_value = Vector(
+        mock_embeddings.embed_query.return_value = Vector(
             id="q", embeddings=[0.1], metadata={}
         )
         mock_vs = MagicMock()

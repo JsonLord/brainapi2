@@ -304,7 +304,7 @@ def _search_semantically_sync(query: str, brain_id: str) -> Any:
     try:
         if not guard_brainpat(auth_token_var.get(), brain_id):
             return "Unauthorized"
-        query_embedding = embeddings_adapter.embed_text(query)
+        query_embedding = embeddings_adapter.embed_query(query)
         data_vectors = vector_search.search_nodes(
             query_embedding.embeddings,
             brain_id=brain_id,

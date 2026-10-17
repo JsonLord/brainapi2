@@ -215,7 +215,7 @@ async def get_entity_status(
     if types is None:
         types = []
 
-    target_embeddings = embeddings_adapter.embed_text(target)
+    target_embeddings = embeddings_adapter.embed_query(target)
     target_node_vs = vector_search.search_nodes(
         target_embeddings.embeddings,
         brain_id=brain_id,

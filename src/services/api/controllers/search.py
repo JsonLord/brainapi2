@@ -236,7 +236,7 @@ async def _search(request: SearchRequestBody) -> SearchResponse:
     if use_dense or want_graph:
         with profile_stage("embed.query", blocking=False):
             embedded = await asyncio.to_thread(
-                embeddings_adapter.embed_text, request.query
+                embeddings_adapter.embed_query, request.query
             )
             query_vector = list(embedded.embeddings or [])
 

@@ -202,3 +202,14 @@ This document serves as the guide and best practices for automated agents deploy
     "node_ids": ["node-456"]
   }
   ```
+## HF CPU embedding contract
+
+Use `embeddinggemma2-text-v1`: Ollama `embeddinggemma-2:270m`, 8192-token maximum,
+768 native dimensions -> first 512 -> L2 normalization. All five primary pgvector
+stores must be `vector(512)`. Never mix model identities even at equal dimensions;
+index/profile mismatches must fail without dropping or reusing old vectors.
+The baseline image preloads only Gemma; chat and reranking remain optional.
+See `deploy/env.hf.cpu.example` and `deploy/README.ollama.md`. Before production,
+commit and stage the exact source, build that staged tree, and run
+`scripts/qualify_hf_embeddings.py` inside the local image. Do not upload a
+production deployment until both the full build and real qualification pass.
