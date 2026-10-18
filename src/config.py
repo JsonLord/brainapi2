@@ -389,9 +389,18 @@ class EmbeddingsConfig:
         self.local_model = os.getenv("EMBEDDINGS_LOCAL_MODEL", "BAAI/bge-small-en-v1.5")
         self.small_model = os.getenv("EMBEDDINGS_SMALL_MODEL", "BAAI/bge-small-en-v1.5")
 
+        provider = (provider or "").strip().lower()
+        model = (model or "").strip()
         gemma = provider == "ollama" and model == "embeddinggemma-2:270m"
-        self.profile = os.getenv("EMBEDDING_PROFILE", "embeddinggemma2-text-v1" if gemma else "")
+        self.profile = (
+            os.getenv(
+                "EMBEDDING_PROFILE",
+                "embeddinggemma2-text-v1" if gemma else "",
+            )
+            or ""
+        ).strip()
         default_dimension = 512 if gemma else 384
+
 
         self.embedding_nodes_dimension = (
             int(os.getenv("EMBEDDING_NODES_DIMENSION"))
@@ -430,7 +439,18 @@ class EmbeddingsConfig:
         if gemma or self.profile == "embeddinggemma2-text-v1":
             if not (gemma and self.profile == "embeddinggemma2-text-v1" and self.native_dimension == 768
                     and self.mrl_dimension == 512 and dimensions == {512}):
-                raise ValueError("embeddinggemma2-text-v1 requires ollama embeddinggemma-2:270m, native 768, MRL 512 and all stored dimensions 512; use a new index when changing profiles")
+                raise ValueError(
+                    "embeddinggemma2-text-v1 configuration mismatch: "
+                    f"provider={provider!r}, model={model!r}, "
+                    f"profile={self.profile!r}, "
+                    f"native_dimension={self.native_dimension!r}, "
+                    f"mrl_dimension={self.mrl_dimension!r}, "
+                    f"stored_dimensions={sorted(dimensions)!r}; "
+                    "expected provider='ollama', model='embeddinggemma-2:270m', "
+                    "profile='embeddinggemma2-text-v1', native=768, MRL=512, "
+                    "all stored dimensions=512"
+                )
+
         elif self.mrl_dimension:
             raise ValueError("MRL is only supported by the qualified embeddinggemma2-text-v1 profile")
 

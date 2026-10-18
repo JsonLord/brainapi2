@@ -97,7 +97,7 @@ def test_zero_mrl_vector_is_rejected(gemma):
 ])
 def test_incompatible_gemma_configuration_fails_before_serving(gemma, monkeypatch, name, value):
     monkeypatch.setenv(name, value)
-    with pytest.raises(ValueError, match='embeddinggemma2-text-v1 requires'):
+    with pytest.raises(ValueError, match='embeddinggemma2-text-v1 configuration mismatch'):
         EmbeddingsConfig('local', provider='ollama', model='embeddinggemma-2:270m')
 
 
