@@ -10,6 +10,10 @@ import sys
 import time
 
 import requests
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.services.brain_identity import InvalidBrainIdError, validate_brain_id
 
 
 DEFAULT_DOCS_URL = "https://brainapi.lumen-labs.ai/docs/llms-full.txt"
@@ -27,8 +31,10 @@ def main() -> int:
     if not token:
         print("BRAINPAT_TOKEN is required", file=sys.stderr)
         return 2
-    if not args.brain.isalnum() or args.brain == "system":
-        print("Demo brain must be a non-system alphanumeric identifier", file=sys.stderr)
+    try:
+        args.brain = validate_brain_id(args.brain)
+    except InvalidBrainIdError as error:
+        print(str(error), file=sys.stderr)
         return 2
 
     api_url = args.api_url.rstrip("/")
@@ -48,7 +54,14 @@ def main() -> int:
     if existing.status_code == 200 and existing.json().get("total", 0) > 0:
         print(f"Public demo brain {args.brain!r} is already current ({digest[:12]}).")
         return 0
-    if existing.status_code not in (200, 406):
+    if existing.status_code in (404, 406) and existing.json().get("error", {}).get("code") == "BRAIN_NOT_FOUND":
+        created = requests.post(
+            f"{api_url}/system/brains", headers=headers,
+            json={"brain_id": args.brain}, timeout=30,
+        )
+        if not (created.status_code == 409 and created.json().get("error", {}).get("code") == "BRAIN_ALREADY_EXISTS"):
+            created.raise_for_status()
+    else:
         existing.raise_for_status()
 
     payload = {

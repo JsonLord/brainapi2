@@ -17,7 +17,6 @@ def agent_client(monkeypatch):
     monkeypatch.setenv("BRAINPAT_TOKEN", "system-secret")
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://brain.example")
     monkeypatch.setattr(brains, "data_adapter", data)
-    monkeypatch.setattr(brains, "cache_adapter", cache)
     monkeypatch.setattr(auth, "data_adapter", data)
     monkeypatch.setattr(auth, "cache_adapter", cache)
     monkeypatch.setattr(agent, "data_adapter", data)

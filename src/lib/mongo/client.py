@@ -16,6 +16,7 @@ from pymongo.database import Database
 from pymongo.collection import Collection
 from src.adapters.interfaces.data import DataClient, SearchResult
 from src.config import config
+from src.services.brain_identity import BrainAlreadyExistsError, validate_brain_id
 from src.constants.data import Brain, KGChanges, Observation, StructuredData, TextChunk, Workspace
 
 
@@ -139,10 +140,15 @@ class MongoClient(DataClient):
         return structured_data
 
     def create_brain(self, name_key: str) -> Brain:
+        name_key = validate_brain_id(name_key)
         collection = self.get_collection("brains", config.mongo.system_database)
         brain = Brain(name_key=name_key)
         brain_dict = brain.model_dump(mode="json", exclude={"id"})
-        result = collection.insert_one(brain_dict)
+        collection.create_index("name_key", unique=True)
+        try:
+            result = collection.insert_one(brain_dict)
+        except DuplicateKeyError:
+            raise BrainAlreadyExistsError("Brain already exists") from None
         brain.id = str(result.inserted_id)
         return brain
 

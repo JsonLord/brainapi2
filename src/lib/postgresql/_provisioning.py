@@ -35,6 +35,7 @@ import psycopg2.pool
 from psycopg2 import sql
 
 from src.config import config
+from src.services.brain_identity import BrainNotFoundError, validate_brain_id
 
 from ._naming import BRAIN_DB_PREFIX, brain_db_name
 
@@ -101,6 +102,12 @@ class _PoolRegistry:
             self._evict_if_needed()
             return pool
 
+    def discard(self, dbname: str) -> None:
+        with self._lock:
+            pool = self._pools.pop(dbname, None)
+            if pool is not None:
+                pool.closeall()
+
     def _evict_if_needed(self) -> None:
         while len(self._pools) > _MAX_OPEN_POOLS:
             evicted_name, evicted_pool = self._pools.popitem(last=False)
@@ -124,7 +131,24 @@ def get_system_pool() -> psycopg2.pool.ThreadedConnectionPool:
 
 
 def get_brain_pool(brain_id: str) -> psycopg2.pool.ThreadedConnectionPool:
+    require_registered_brain(brain_id)
     return _registry.get(brain_db_name(brain_id))
+
+
+def require_registered_brain(brain_id: str) -> None:
+    """Authorize an existing namespace from persisted state, never by storage/cache."""
+    brain_id = validate_brain_id(brain_id)
+    if config.data_db.strip().lower() != "postgresql":
+        # Mixed storage profiles still use their configured canonical registry.
+        from src.services.data.main import data_adapter
+        if data_adapter.get_brain(name_key=brain_id) is None:
+            raise BrainNotFoundError("Brain not found")
+        return
+    with borrow(get_system_pool()) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM data_brains WHERE name_key = %s", (brain_id,))
+            if cur.fetchone() is None:
+                raise BrainNotFoundError("Brain not found")
 
 
 @contextmanager
@@ -132,6 +156,9 @@ def borrow(pool: psycopg2.pool.ThreadedConnectionPool) -> Iterator[psycopg2.exte
     conn = pool.getconn()
     try:
         yield conn
+    except BaseException:
+        conn.rollback()
+        raise
     finally:
         pool.putconn(conn)
 
@@ -181,6 +208,7 @@ def ensure_database_exists(dbname: str) -> None:
 
 def ensure_brain_database(brain_id: str) -> str:
     """Return the per-brain database name, creating the database if needed."""
+    require_registered_brain(brain_id)
     dbname = brain_db_name(brain_id)
     ensure_database_exists(dbname)
     return dbname
@@ -232,7 +260,7 @@ def clear_brain_database(
             if cur.fetchone() is None:
                 return []
 
-    with borrow(get_brain_pool(brain_id)) as conn:
+    with borrow(get_pool(dbname)) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT tablename FROM pg_tables "
@@ -255,3 +283,24 @@ def clear_brain_database(
                 )
         conn.commit()
     return tables
+
+
+def drop_brain_database(brain_id: str) -> None:
+    """Explicit lifecycle delete, including unregistered orphan storage."""
+    brain_id = validate_brain_id(brain_id)
+    dbname = brain_db_name(brain_id)
+    if dbname in {_system_dbname(), _maintenance_dbname()}:
+        raise ValueError("Cannot delete an infrastructure database")
+    _registry.discard(dbname)
+    conn = psycopg2.connect(
+        host=config.postgresql.host, port=config.postgresql.port,
+        user=config.postgresql.username, password=config.postgresql.password,
+        dbname=_maintenance_dbname(),
+    )
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(dbname)))
+    finally:
+        conn.close()
+    _created_dbs.discard(dbname)

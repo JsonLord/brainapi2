@@ -77,9 +77,10 @@ export CELERY_RESULT_BACKEND="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
 # docker exec starts with the image environment, not this script's exports.
 # Load the same runtime defaults/credentials for qualification without restarting
 # or reinitializing the already-running application services.
-if [ "${1:-}" = "--qualify" ]; then
-    exec /app/.venv/bin/python /app/scripts/qualify_hf_embeddings.py
-fi
+case "${1:-}" in
+    --qualify) exec /app/.venv/bin/python /app/scripts/qualify_hf_embeddings.py ;;
+    --qualify-registry) exec /app/.venv/bin/python /app/scripts/qualify_brain_registry.py ;;
+esac
 
 # Print non-secret startup diagnostics
 echo "=================================================="

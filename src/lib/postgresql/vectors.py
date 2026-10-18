@@ -27,7 +27,7 @@ from src.lib.embeddings.profile import EmbeddingProfileError, index_profile, req
 from ._provisioning import (
     borrow,
     clear_brain_database,
-    ensure_brain_database,
+    require_registered_brain,
     get_brain_pool,
 )
 
@@ -136,12 +136,12 @@ class PostgreSQLVectorStoreClient(VectorStoreClient):
             yield conn
 
     def _ensure_extension(self, brain_id: str) -> None:
+        require_registered_brain(brain_id)
         if brain_id in self._brain_extensions_ready:
             return
         with self._lock:
             if brain_id in self._brain_extensions_ready:
                 return
-            ensure_brain_database(brain_id)
             with borrow(get_brain_pool(brain_id)) as conn:
                 with conn.cursor() as cur:
                     cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -150,8 +150,13 @@ class PostgreSQLVectorStoreClient(VectorStoreClient):
 
     def clear_brain_data(self, brain_id: str) -> None:
         clear_brain_database(brain_id, table_prefixes=("vectors_",))
+        self._brain_extensions_ready.discard(brain_id)
+        self._initialized_stores = {
+            key for key in self._initialized_stores if not key.startswith(f"{brain_id}:")
+        }
 
     def _ensure_store(self, store: str, brain_id: str) -> None:
+        require_registered_brain(brain_id)
         if store not in EMBEDDING_STORES_SIZES:
             raise ValueError(f"Store {store} not available")
         dimension = EMBEDDING_STORES_SIZES[store]

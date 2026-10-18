@@ -16,12 +16,11 @@ from email.parser import BytesParser
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette import status
 
 from src.services.api.console_static import is_console_path
 from src.services.api.errors import error_response
 from src.services.data.main import data_adapter
-from src.services.kg_agent.main import cache_adapter
+from src.services.brain_identity import InvalidBrainIdError, validate_brain_id
 from src.services.workspaces import WorkspaceScopeConflictError, resolve_workspace_scope
 
 
@@ -102,7 +101,7 @@ class BrainMiddleware(BaseHTTPMiddleware):
                         body_data = json.loads(body)
                         if isinstance(body_data, dict):
                             body_brain_id = body_data.get("brain_id")
-                            if body_brain_id:
+                            if isinstance(body_brain_id, str):
                                 body_brain_id = body_brain_id.rstrip()
                     except (json.JSONDecodeError, ValueError):
                         pass
@@ -163,83 +162,41 @@ class BrainMiddleware(BaseHTTPMiddleware):
         brain_id, scope_error = await _get_brain_id()
         if scope_error is not None:
             return scope_error
-        brain_creation_allowed = os.getenv("BRAIN_CREATION_ALLOWED") == "true"
         default_brain_fallback = os.getenv("DEFAULT_BRAIN_FALLBACK") == "true"
 
         # Bypassing system routes --------------------------------
         if request.url.path.startswith("/system") or request.url.path == "/":
             return await call_next(request)
 
-        # Cleanup checks -----------------------------------------
-        if brain_id == "system":
+        # Scope resolution never provisions a brain, even with legacy creation flags.
+        if brain_id is None and default_brain_fallback:
+            brain_id = "default"
+        if brain_id is None:
             return error_response(
-                request,
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="System brain is not allowed to be used.",
-                code="BRAIN_ID_RESERVED",
-                message="The system brain is reserved.",
-                resolution="Select a non-system application brain.",
+                request, status_code=400, detail="Brain ID is required.",
+                code="BRAIN_ID_REQUIRED",
             )
-        if brain_id and not re.fullmatch(
-            r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", brain_id
-        ):
-            return error_response(
-                request,
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Brain ID contains unsupported characters.",
-                code="BRAIN_ID_INVALID",
-                message="The brain identifier is invalid.",
-                resolution="Use letters, digits, hyphens, or underscores.",
-                extra={"value": brain_id},
-            )
-
         try:
-            cached_brain_id = cache_adapter.get(
-                key=f"brain:{brain_id}", brain_id="system"
-            )
-            if brain_id and not cached_brain_id:
-                stored_brain = data_adapter.get_brain(name_key=brain_id)
-
-                request.state.brain_id = brain_id
-
-                if not stored_brain and brain_creation_allowed:
-                    new_brain = data_adapter.create_brain(name_key=brain_id)
-                    cache_adapter.set(
-                        key=f"brain:{brain_id}",
-                        value=new_brain.id,
-                        brain_id="system",
-                    )
-                elif stored_brain:
-                    cache_adapter.set(
-                        key=f"brain:{brain_id}",
-                        value=stored_brain.id,
-                        brain_id="system",
-                    )
-            elif not brain_id and default_brain_fallback:
-                default_brain = data_adapter.get_brain(name_key="default")
-                if not default_brain:
-                    default_brain = data_adapter.create_brain(name_key="default")
-                    cache_adapter.set(
-                        key="brain:default",
-                        value=default_brain.id,
-                        brain_id="system",
-                    )
-                    request.state.brain_id = "default"
-                else:
-                    cache_adapter.set(
-                        key="brain:default",
-                        value=default_brain.id,
-                        brain_id="system",
-                    )
-                    request.state.brain_id = "default"
-        except Exception:
-            request.state.brain_id = brain_id or "default"
-
-        if getattr(request.state, "brain_id", None) is None:
+            brain_id = validate_brain_id(brain_id)
+        except InvalidBrainIdError as error:
             return error_response(
-                request,
-                status_code=status.HTTP_406_NOT_ACCEPTABLE,
-                detail="Brain not found or creation is not allowed.",
+                request, status_code=400, detail=str(error),
+                code=error.code,
+                resolution="Use 1-128 ASCII letters, digits, hyphens, or underscores, starting with a letter or digit; system is reserved.",
             )
-
+        try:
+            # A stale cache must never override registry deletion or authorize storage.
+            stored_brain = data_adapter.get_brain(name_key=brain_id)
+        except Exception:
+            return error_response(
+                request, status_code=503, detail="Brain registry unavailable",
+            )
+        if stored_brain is None:
+            request.state.brain_id = None
+            return error_response(
+                request, status_code=404, detail="Brain not found",
+                code="BRAIN_NOT_FOUND",
+                resolution="Create the brain explicitly or select a registered brain.",
+            )
+        request.state.brain_id = brain_id
         return await call_next(request)

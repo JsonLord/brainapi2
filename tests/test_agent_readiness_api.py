@@ -150,8 +150,8 @@ class StructuredErrorTests(unittest.TestCase):
             return {"ok": True}
 
         with patch(
-            "src.services.api.middlewares.brains.cache_adapter.get",
-            side_effect=ConnectionError("redis secret"),
+            "src.services.api.middlewares.brains.data_adapter.get_brain",
+            side_effect=ConnectionError("registry secret"),
         ):
             response = TestClient(app).get(
                 "/protected",
@@ -159,7 +159,7 @@ class StructuredErrorTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["error"]["code"], "SERVICE_UNAVAILABLE")
-        self.assertNotIn("redis secret", response.text)
+        self.assertNotIn("registry secret", response.text)
 
 
 class PublicApiTests(unittest.TestCase):

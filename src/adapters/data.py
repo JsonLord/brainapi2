@@ -99,7 +99,17 @@ class DataAdapter:
         """
         Create a new brain in the data client.
         """
-        return self.data.create_brain(name_key=name_key)
+        brain = self.data.create_brain(name_key=name_key)
+        from src.config import config
+        if config.data_db.strip().lower() != "postgresql" and (
+            config.vector_db.strip().lower() == "postgresql"
+            or config.graph_db.strip().lower() == "networkx"
+        ):
+            # A Mongo registry with PostgreSQL graph/vectors also provisions only
+            # at this explicit creation boundary, never from backend reads.
+            from src.lib.postgresql._provisioning import ensure_brain_database
+            ensure_brain_database(brain.name_key)
+        return brain
 
     def get_brain(self, name_key: str) -> Brain:
         """

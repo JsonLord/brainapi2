@@ -7,20 +7,16 @@ from dataclasses import dataclass
 import logging
 from typing import Any, Iterator, Protocol
 
+from src.services.brain_identity import (
+    BrainNotFoundError, InvalidBrainIdError, validate_brain_id,
+)
+
 
 logger = logging.getLogger(__name__)
 
 
 class BrainLifecycleError(RuntimeError):
     """Base class for lifecycle failures safe to map at the API boundary."""
-
-
-class InvalidBrainIdError(BrainLifecycleError):
-    """Raised when a lifecycle target is invalid or reserved."""
-
-
-class BrainNotFoundError(BrainLifecycleError):
-    """Raised when a clear operation targets an unknown brain."""
 
 
 class BrainLifecycleBusyError(BrainLifecycleError):
@@ -72,21 +68,6 @@ class BrainLifecycleResult:
             "existed": self.existed,
             "cleared_backends": self.cleared_backends,
         }
-
-
-def validate_brain_id(brain_id: str) -> str:
-    normalized = (brain_id or "").strip()
-    if (
-        not normalized
-        or not normalized.isalnum()
-        or not normalized[0].isalpha()
-    ):
-        raise InvalidBrainIdError(
-            "brain_id must be alphanumeric and start with a letter"
-        )
-    if normalized.lower() == "system":
-        raise InvalidBrainIdError('brain_id "system" is reserved')
-    return normalized
 
 
 class BrainLifecycleService:
@@ -183,6 +164,10 @@ class BrainLifecycleService:
                 )
                 raise BrainCleanupError(brain_id, ["registry_cache"]) from None
             try:
+                # PostgreSQL namespaces must disappear even when registry-less.
+                delete_storage = getattr(self._data, "delete_brain_storage", None)
+                if delete_storage is not None:
+                    delete_storage(brain_id)
                 self._data.delete_brain_registry(brain_id)
             except Exception:
                 logger.exception("Failed to delete registry for brain %s", brain_id)

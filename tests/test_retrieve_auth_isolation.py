@@ -7,7 +7,7 @@ client = TestClient(app)
 
 @pytest.fixture
 def mock_data_adapter():
-    with patch("src.services.api.middlewares.auth.data_adapter") as mock_da:
+    with patch("src.services.api.middlewares.auth.data_adapter") as mock_da, patch("src.services.api.middlewares.brains.data_adapter", mock_da):
         yield mock_da
 
 @pytest.fixture

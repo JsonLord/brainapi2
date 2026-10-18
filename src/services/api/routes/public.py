@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from src.services.brain_identity import InvalidBrainIdError, validate_brain_id
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -71,7 +73,9 @@ async def demo_search(
         raise HTTPException(status_code=404, detail="Public demo search is disabled")
 
     brain_id = os.getenv("PUBLIC_DEMO_BRAIN_ID", "agentdemo").strip()
-    if not brain_id or not brain_id.isalnum() or brain_id == "system":
+    try:
+        brain_id = validate_brain_id(brain_id)
+    except InvalidBrainIdError:
         raise HTTPException(
             status_code=503,
             detail="Public demo brain is not configured correctly",

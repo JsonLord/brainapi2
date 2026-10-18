@@ -56,6 +56,13 @@ def _postgres_available() -> bool:
 
 
 class OkapiBm25Tests(unittest.TestCase):
+    def setUp(self):
+        # These unit tests isolate FTS schema policy for registered namespaces.
+        for module in ('src.lib.postgresql.data', 'src.lib.postgresql.graph_store'):
+            guard = patch(module + '.require_registered_brain')
+            guard.start()
+            self.addCleanup(guard.stop)
+
     def test_term_overlap_ranks_above_non_overlap(self):
         overlap = okapi_bm25_document(
             {"license": 2.0},
@@ -165,6 +172,8 @@ class OkapiBm25Tests(unittest.TestCase):
         brain_id = "searchbench_bm25_unit"
         with patch.object(pgdata.config, "search_enabled", True):
             client = pgdata.PostgreSQLDataClient()
+            if client.get_brain(brain_id) is None:
+                client.create_brain(brain_id)
             overlap = TextChunk(
                 id="overlap",
                 text="alice counseling license renewal board",

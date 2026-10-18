@@ -9,7 +9,7 @@ Modified By: Christian Nonis <alch.infoemail@gmail.com>
 """
 
 import asyncio
-import re
+from src.services.brain_identity import validate_brain_id
 
 from src.services.api.constants.requests import CreateBrainRequest
 from src.services.brain_lifecycle import BrainLifecycleService
@@ -28,9 +28,8 @@ async def create_new_brain(request: CreateBrainRequest):
     """
     Create a new brain
     """
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", request.brain_id):
-        raise ValueError("brain_id contains unsupported characters")
-    result = await asyncio.to_thread(data_adapter.create_brain, request.brain_id)
+    brain_id = validate_brain_id(request.brain_id)
+    result = await asyncio.to_thread(data_adapter.create_brain, brain_id)
     return result
 
 

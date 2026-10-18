@@ -62,9 +62,9 @@ async def clear_brain(brain_id: str, request: Request):
             request,
             status_code=400,
             detail=str(error),
-            code="BRAIN_ID_INVALID",
+            code=error.code,
             message="The brain identifier is invalid.",
-            resolution="Use an alphanumeric brain ID that starts with a letter.",
+            resolution="Use 1-128 ASCII letters, digits, hyphens, or underscores, starting with a letter or digit; system is reserved.",
         )
     except BrainNotFoundError as error:
         return error_response(
@@ -112,9 +112,9 @@ async def delete_brain(brain_id: str, request: Request):
             request,
             status_code=400,
             detail=str(error),
-            code="BRAIN_ID_INVALID",
+            code=error.code,
             message="The brain identifier is invalid.",
-            resolution="Use an alphanumeric brain ID that starts with a letter.",
+            resolution="Use 1-128 ASCII letters, digits, hyphens, or underscores, starting with a letter or digit; system is reserved.",
         )
     except BrainLifecycleBusyError as error:
         return error_response(

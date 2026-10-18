@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, JsonValue
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from src.lib.embeddings.profile import EmbeddingProfileError
+from src.services.brain_identity import BrainNotFoundError, BrainAlreadyExistsError, InvalidBrainIdError
 
 
 class ErrorInfo(BaseModel):
@@ -157,6 +158,25 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code=422,
             detail=exc.errors(),
         )
+
+    @app.exception_handler(BrainNotFoundError)
+    async def missing_brain_handler(request: Request, _exc: BrainNotFoundError):
+        return error_response(
+            request, status_code=404, detail="Brain not found", code="BRAIN_NOT_FOUND",
+            resolution="Create the brain explicitly or select a registered brain.",
+        )
+
+    @app.exception_handler(BrainAlreadyExistsError)
+    async def duplicate_brain_handler(request: Request, _exc: BrainAlreadyExistsError):
+        return error_response(
+            request, status_code=409, detail="Brain already exists", code="BRAIN_ALREADY_EXISTS",
+            message="A brain with this identifier already exists.",
+            resolution="Select the existing brain or create a different identifier.",
+        )
+
+    @app.exception_handler(InvalidBrainIdError)
+    async def invalid_brain_handler(request: Request, exc: InvalidBrainIdError):
+        return error_response(request, status_code=400, detail=str(exc), code=exc.code)
 
     @app.exception_handler(EmbeddingProfileError)
     async def embedding_profile_exception_handler(request: Request, exc: EmbeddingProfileError):

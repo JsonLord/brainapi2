@@ -94,7 +94,7 @@ class BrainPATMiddleware(BaseHTTPMiddleware):
                 detail="Brain ID is required.",
                 code="BRAIN_ID_REQUIRED",
                 message="A brain identifier is required.",
-                resolution="Send X-Brain-ID with the intended alphanumeric brain name.",
+                resolution="Send X-Brain-ID using 1-128 ASCII letters, digits, hyphens, or underscores, starting with a letter or digit.",
             )
         cachepat_key = f"brainpat:{brain_id}"
         if system_pat and secrets.compare_digest(brainpat, system_pat):

@@ -5,6 +5,14 @@ from src.services.api.app import app
 
 client = TestClient(app)
 
+@pytest.fixture(autouse=True)
+def registered_scope(monkeypatch):
+    from types import SimpleNamespace
+    from src.services.api.middlewares import brains
+    monkeypatch.setattr(brains.data_adapter, 'get_brain', lambda name_key: SimpleNamespace(name_key=name_key))
+    monkeypatch.setenv('DEFAULT_BRAIN_FALLBACK', 'true')
+
+
 def test_retrieve_search_post_unauthorized():
     response = client.post("/retrieve/search", json={"query": "test"})
     assert response.status_code == 401

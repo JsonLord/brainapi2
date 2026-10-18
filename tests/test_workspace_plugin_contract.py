@@ -65,7 +65,6 @@ def test_workspace_plugin_route_receives_authoritative_brain(monkeypatch):
     data, cache = FacadeData(), FacadeCache()
     monkeypatch.setenv("BRAINPAT_TOKEN", "system-secret")
     monkeypatch.setattr(brains, "data_adapter", data)
-    monkeypatch.setattr(brains, "cache_adapter", cache)
     monkeypatch.setattr(auth, "data_adapter", data)
     monkeypatch.setattr(auth, "cache_adapter", cache)
     app.add_middleware(BrainPATMiddleware)

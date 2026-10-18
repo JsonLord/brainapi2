@@ -117,10 +117,46 @@ docker compose --env-file /etc/brainapi/light.env -f deploy/docker-compose.light
 The seed command downloads the published V2 documentation, records its SHA-256
 marker, skips an already-current corpus, and polls the asynchronous ingestion
 task. It requires the private system `BRAINPAT_TOKEN` inside the deployment; do
-not expose that token through the gateway. After the first successful seed,
-`BRAIN_CREATION_ALLOWED` may be returned to the operator's normal setting.
+not expose that token through the gateway. The seed command explicitly creates
+the brain; `BRAIN_CREATION_ALLOWED` does not enable implicit API provisioning.
 
 Expose the API origin as `api.brain-api.dev`, with TLS, and put the Cloudflare
 gateway in front of root-domain `/api/*`. The application itself deliberately
 does not implement client rate limiting; the checked-in gateway owns the
 30-request/60-second demo limit.
+
+
+## Brain registry contract
+
+The persisted registry is authoritative. Retrieval, query, agent, and MCP access
+cannot provision an unknown brain, even with `BRAIN_CREATION_ALLOWED=true`.
+Explicit unknown API scopes return `404 BRAIN_NOT_FOUND`. A missing scope can
+resolve to `default` only when `DEFAULT_BRAIN_FALLBACK=true` and that brain is
+already registered. Create brains with `POST /system/brains` or
+`POST /system/workspaces`; duplicate brain creation returns
+`409 BRAIN_ALREADY_EXISTS`, including concurrent inserts.
+
+Brain IDs accept 1–128 ASCII letters, digits, hyphens, and underscores, starting
+with a letter or digit. `system` is reserved (case insensitive). The same rules
+apply to create, clear, and delete; workspace slugs retain their narrower syntax.
+`/system/brains-list` returns persisted registry identities only. Orphan physical
+databases never appear as registered brains or acquire generated PATs.
+
+Clear preserves registered identity and physical storage. Explicit delete also
+removes the PostgreSQL database, including a named orphan without a registry
+row. These are destructive operations: target only an intended identifier.
+
+Run the deterministic gate and the opt-in real integration gate:
+
+```bash
+PYTHONPATH=.:tests python -m pytest -q tests/test_brain_registry_contract.py tests/test_brain_lifecycle.py
+BRAINAPI_REGISTRY_TEST_CONTAINER=<disposable-local-container> \
+  PYTHONPATH=.:tests python -m pytest -q tests/integration/test_brain_registry_contract.py
+```
+
+The integration gate requires a disposable local HF CPU container with the
+candidate source and its normal entrypoint environment. It invokes
+`bash /app/entrypoint.sh --qualify-registry`, compares actual PostgreSQL catalogs
+and application Redis state around unknown GET/search/context requests, tests
+concurrent storage inserts, and deletes only its own collision-checked temporary
+namespaces. It does not clean production probe artifacts or other existing brains.

@@ -9,6 +9,7 @@ from hashlib import sha1
 from urllib.parse import quote, urlsplit
 
 from src.constants.data import Brain, Workspace
+from src.services.brain_identity import BrainAlreadyExistsError, validate_brain_id
 
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -133,7 +134,11 @@ class WorkspaceService:
             raise WorkspaceConflictError(
                 f'Brain "{slug}" already exists; run workspace bootstrap'
             )
-        self.repository.create_brain(slug)
+        validate_brain_id(slug)
+        try:
+            self.repository.create_brain(slug)
+        except BrainAlreadyExistsError:
+            raise WorkspaceConflictError("Brain already exists") from None
         return self.repository.create_workspace(
             Workspace(
                 brain_id=slug,

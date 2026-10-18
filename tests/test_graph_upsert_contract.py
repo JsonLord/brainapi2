@@ -170,7 +170,8 @@ class NetworkXUpsertContractTests(unittest.TestCase):
         fresh.graph.add_edge("a", "b", key="r1", rel_type="KNOWS")
         store._reload_brain_locked = MagicMock(return_value=fresh)
 
-        loaded = store._load_brain("brain-a")
+        with patch("src.lib.postgresql.graph_store.require_registered_brain"):
+            loaded = store._load_brain("brain-a")
         self.assertIs(loaded, fresh)
         store._reload_brain_locked.assert_called_once_with("brain-a")
 

@@ -12,6 +12,7 @@ Modified By: Christian Nonis <alch.infoemail@gmail.com>
 import secrets
 
 from src.config import config
+from src.services.brain_identity import BrainNotFoundError, validate_brain_id
 from src.services.data.main import data_adapter
 
 
@@ -25,6 +26,10 @@ def guard_brainpat(pat: str = None, target_brain: str = None) -> bool | str:
     if pat and config.brainpat_token and secrets.compare_digest(
         pat, config.brainpat_token
     ):
+        if target_brain:
+            target_brain = validate_brain_id(target_brain)
+            if data_adapter.get_brain(target_brain) is None:
+                raise BrainNotFoundError("Brain not found")
         return True
 
     brains = data_adapter.get_brains_list()

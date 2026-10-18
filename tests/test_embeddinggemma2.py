@@ -113,6 +113,7 @@ def test_postgres_rejects_incompatible_index_without_dropping_vectors(gemma, mon
     def connect(brain):
         yield connection
     monkeypatch.setattr(client, '_connection', connect)
+    monkeypatch.setattr(vectors, 'require_registered_brain', lambda brain_id: None)
     monkeypatch.setitem(vectors.EMBEDDING_STORES_SIZES, 'data', 512)
     with pytest.raises(EmbeddingProfileError, match='new empty brain/index'):
         client._ensure_store('data', 'qualification')
@@ -129,6 +130,7 @@ def test_fresh_postgres_schema_records_profile_and_512_dimensions(gemma, monkeyp
     def connect(brain):
         yield connection
     monkeypatch.setattr(client, '_connection', connect)
+    monkeypatch.setattr(vectors, 'require_registered_brain', lambda brain_id: None)
     monkeypatch.setattr(vectors, 'EMBEDDING_STORES_SIZES', dict.fromkeys(
         ('nodes', 'triplets', 'observations', 'data', 'relationships'), 512))
     for store in vectors.EMBEDDING_STORES_SIZES:

@@ -133,7 +133,7 @@ def test_partial_cleanup_keeps_registry_for_a_safe_retry():
     assert "registry:delete:demo" not in events
 
 
-@pytest.mark.parametrize("brain_id", ["", "123", "bad-id", "system"])
+@pytest.mark.parametrize("brain_id", ["", "bad id", "-bad", "system", "SYSTEM", "a" * 129])
 def test_lifecycle_rejects_invalid_or_reserved_brain_ids(brain_id: str):
     with pytest.raises(InvalidBrainIdError):
         validate_brain_id(brain_id)

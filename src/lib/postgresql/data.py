@@ -17,6 +17,7 @@ import psycopg2.extras
 
 from src.adapters.interfaces.data import DataClient, SearchResult
 from src.config import SEARCH_FTS_REGCONFIGS, config
+from src.services.brain_identity import BrainAlreadyExistsError, validate_brain_id
 from src.constants.data import (
     Brain,
     KGChanges,
@@ -27,11 +28,6 @@ from src.constants.data import (
     Workspace,
 )
 
-from ._naming import (
-    brain_db_name,
-    brain_id_from_db_name,
-    is_internal_brain_db_suffix,
-)
 from ._provisioning import (
     borrow,
     ensure_brain_database,
@@ -39,7 +35,8 @@ from ._provisioning import (
     get_brain_pool,
     get_system_pool,
     clear_brain_database,
-    list_brain_database_names,
+    drop_brain_database,
+    require_registered_brain,
 )
 
 
@@ -272,7 +269,7 @@ class PostgreSQLDataClient(DataClient):
     def _brain_connection(
         self, brain_id: str
     ) -> Iterator[psycopg2.extensions.connection]:
-        self._ensure_brain_schema(brain_id)
+        # Existing connection only: provisioning belongs to create_brain().
         with borrow(get_brain_pool(brain_id)) as conn:
             yield conn
 
@@ -290,6 +287,7 @@ class PostgreSQLDataClient(DataClient):
             self._system_initialized = True
 
     def _ensure_brain_schema(self, brain_id: str) -> None:
+        require_registered_brain(brain_id)
         alt_regconfig = config.search_fts_regconfig_for_brain(brain_id)
         needs_base = brain_id not in self._initialized_brains
         needs_search = (
@@ -536,23 +534,27 @@ class PostgreSQLDataClient(DataClient):
         return structured_data
 
     def create_brain(self, name_key: str) -> Brain:
+        name_key = validate_brain_id(name_key)
         brain = Brain(name_key=name_key)
         document = brain.model_dump(mode="json")
-        with self._system_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO data_brains (id, name_key, pat, document)
-                    VALUES (%s, %s, %s, %s::jsonb)
-                    """,
-                    (
-                        brain.id,
-                        brain.name_key,
-                        brain.pat,
-                        json.dumps(document, default=str),
-                    ),
-                )
-            conn.commit()
+        try:
+            with self._system_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO data_brains (id, name_key, pat, document)
+                        VALUES (%s, %s, %s, %s::jsonb)
+                        """,
+                        (
+                            brain.id,
+                            brain.name_key,
+                            brain.pat,
+                            json.dumps(document, default=str),
+                        ),
+                    )
+                conn.commit()
+        except psycopg2.errors.UniqueViolation:
+            raise BrainAlreadyExistsError("Brain already exists") from None
         self._ensure_brain_schema(name_key)
         return brain
 
@@ -585,22 +587,10 @@ class PostgreSQLDataClient(DataClient):
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("SELECT document FROM data_brains")
                 rows = cur.fetchall()
-        registered = [Brain.model_validate(row["document"]) for row in rows]
-        by_key = {brain.name_key: brain for brain in registered}
-        known_db_names = {
-            brain_db_name(brain.name_key) for brain in registered
-        } | {brain_db_name(brain.id) for brain in registered}
-
-        for db_name in list_brain_database_names():
-            if db_name in known_db_names:
-                continue
-            suffix = brain_id_from_db_name(db_name)
-            if not suffix or is_internal_brain_db_suffix(suffix):
-                continue
-            if suffix not in by_key:
-                by_key[suffix] = Brain(name_key=suffix)
-
-        return sorted(by_key.values(), key=lambda brain: brain.name_key)
+        return sorted(
+            (Brain.model_validate(row["document"]) for row in rows),
+            key=lambda brain: brain.name_key,
+        )
 
     def create_workspace(self, workspace: Workspace) -> Workspace:
         with self._system_connection() as conn:
@@ -646,6 +636,12 @@ class PostgreSQLDataClient(DataClient):
 
     def clear_brain_data(self, brain_id: str) -> None:
         clear_brain_database(brain_id)
+
+    def delete_brain_storage(self, brain_id: str) -> None:
+        drop_brain_database(brain_id)
+        self._initialized_brains.discard(brain_id)
+        self._search_ready_brains.discard(brain_id)
+        self._search_alt_brains.discard(brain_id)
 
     def delete_brain_registry(self, brain_id: str) -> bool:
         with self._system_connection() as conn:

@@ -19,7 +19,7 @@ import psycopg2.extras
 
 from src.config import config
 
-from ._provisioning import borrow, ensure_brain_database, get_brain_pool
+from ._provisioning import borrow, require_registered_brain, get_brain_pool
 from .read_query import (
     MAX_READ_QUERY_ROWS,
     READ_QUERY_TIMEOUT_MS,
@@ -152,9 +152,9 @@ class PostgreSQLGraphStore:
     """
     Graph driver that persists each brain into its own Postgres database.
 
-    The per-brain database is provisioned lazily through ``ensure_brain_database``
-    and accessed through the shared LRU pool registry. Each database owns a flat
-    schema (no ``brain_id`` columns, no ``kg_brains`` reference table) because
+    The per-brain database is provisioned explicitly at brain creation, then
+    accessed through registry-checked connections in the shared LRU pool registry.
+    Each database owns a flat schema (no ``brain_id`` columns, no ``kg_brains`` reference table) because
     the brain identity is encoded in the database name itself.
     """
 
@@ -226,6 +226,7 @@ class PostgreSQLGraphStore:
         self._brains_lock = threading.RLock()
 
     def _ensure_brain_schema(self, brain_id: str) -> None:
+        require_registered_brain(brain_id)
         needs_base = brain_id not in self._schema_ready
         needs_search = (
             bool(config.search_enabled) and brain_id not in self._search_ready_brains
@@ -240,7 +241,6 @@ class PostgreSQLGraphStore:
             )
             if not needs_base and not needs_search:
                 return
-            ensure_brain_database(brain_id)
             with borrow(get_brain_pool(brain_id)) as conn:
                 if needs_base:
                     with conn.cursor() as cur:
@@ -384,6 +384,8 @@ class PostgreSQLGraphStore:
     def invalidate_brain(self, brain_id: str) -> None:
         with self._brains_lock:
             self._brains.pop(brain_id, None)
+            self._schema_ready.discard(brain_id)
+            self._search_ready_brains.discard(brain_id)
 
     def _db_graph_counts(self, brain_id: str) -> tuple[int, int]:
         self._ensure_brain_schema(brain_id)
@@ -397,6 +399,7 @@ class PostgreSQLGraphStore:
 
     def _load_brain(self, brain_id: str) -> _BrainGraph:
         """Read path: refresh from Postgres when another process wrote data."""
+        require_registered_brain(brain_id)
         with self._brains_lock:
             cached = self._brains.get(brain_id)
             cached_counts = (
