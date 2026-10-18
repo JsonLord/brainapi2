@@ -14,8 +14,12 @@ import { connectSession, setSession } from "../lib/api";
 export default function LoginPage() {
   const navigate = useNavigate();
   const existing = loadSession();
+  const defaultApiBaseUrl = window.location.origin === "http://localhost:5173" || window.location.origin === "http://localhost:4173"
+    ? "http://localhost:8000"
+    : window.location.origin;
+
   const [apiBaseUrl, setApiBaseUrl] = useState(
-    existing?.apiBaseUrl ?? "http://localhost:8000",
+    existing?.apiBaseUrl ?? defaultApiBaseUrl,
   );
   const [pat, setPat] = useState(existing?.pat ?? "");
   const [error, setError] = useState<string | null>(null);

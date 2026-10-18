@@ -250,3 +250,37 @@ production deployment until both the full build and real qualification pass.
 - API endpoints documented in `Agent.md` should strictly match the actual implementation (route decorators and Pydantic models). The canonical HTTP method (e.g., POST) should be presented as the primary interface, without modifying API behavior just to match docs.
 - The local test suite must be executed using `PYTHONPATH=tests poetry run pytest` to resolve import errors for test helper modules.
 - `Config` in `src/config.py` conditionally instantiates database sub-configurations (`mongo`, `milvus`, `neo4j`, `postgresql`) based on `DATA_DB`, `VECTOR_DB`, and `GRAPH_DB` environment variables.
+
+## 4. Tricks and Ongoing Deployment Best Practices
+
+### Custom Deployment Script
+- Deployments to Hugging Face Spaces must use the custom `deploy/hf_space.py` complete-tree helper script rather than a plain `hf upload`. Use `python deploy/hf_space.py stage --revision HEAD --output /tmp/brainapi-hf-source` followed by `python deploy/hf_space.py upload --revision HEAD` to ensure the staged tree correctly matches the committed revision.
+
+### Environment Variable Normalization
+- String environment variables mapped into configuration classes (e.g., `provider`, `model`, `profile` in `src/config.py`) must be explicitly normalized early using `.strip()` and `.lower()` at the boundary to prevent invisible whitespace or case mismatch validation errors.
+- When logging environment variable diagnostics in shell scripts like `entrypoint.sh`, place `echo` and `printf` statements after the fallback default evaluation variables are evaluated (e.g., `export VAR="${VAR:-default}"`) to ensure the effective runtime configurations are captured.
+
+### Docker and Hub Constraints
+- If a Hugging Face Space configured with the Docker SDK reports 'missing an app file', it means the `Dockerfile` is missing from the remote repository and must be explicitly uploaded alongside the `README.md` to trigger the build.
+- The `deploy/` directory must not be excluded in `.dockerignore` so that Supervisord and Nginx configurations can be copied during Docker image builds.
+- `.dockerignore` must exclude `node_modules/`, `console/node_modules/`, and `tui/node_modules/` to prevent copying local node dependencies into Docker build stages.
+- The `README.md` requires Hugging Face YAML frontmatter at the very top of the file including `title: BrainAPI`, `emoji`, `colorFrom`, `colorTo`, `sdk: docker`, `app_port: 7860`, and `pinned` configurations to satisfy constraints.
+- Do not hardcode Hugging Face access token strings in repository files like `Agent.md`, as HF Hub security filters reject commits containing raw tokens.
+
+### Docker Startup & Service Coordination
+- In Supervisord process definitions, the Celery worker application module is `src.workers.app:ingestion_app` and the MCP ASGI server module is `src.services.mcp.app:app`.
+- For Hugging Face Spaces compatibility, the API is configured in `deploy/supervisord.conf` under `[program:brainapi-api]` to run Uvicorn on `0.0.0.0` port `7860` natively (or handled by an Nginx reverse proxy on 7860 to internal 8000).
+- Setting `serverSelectionTimeoutMS` (e.g. 2000ms) on `PyMongoClient` prevents 30-second blocking timeouts when MongoDB is offline during startup.
+- The PostgreSQL extension `vector` is pre-created in `template1` as superuser `postgres` in `entrypoint.sh` so that newly initialized workspace databases automatically inherit `pgvector` without requiring `SUPERUSER` privileges for user `brainapi`.
+- In all-in-one container deployments, Supervisord orchestrates local PostgreSQL (with `pgvector`), Redis, FastAPI API, MCP server, Celery worker, and Nginx, using persistent secrets stored in `/data/brainapi/internal-secrets.env`.
+- In standalone deployment container environments, setting `PIPELINE_MODE=lightweight` and `EMBEDDINGS_PROVIDER=mock` or `fastembed` avoids hard runtime dependencies on external LLM services or Ollama instances.
+
+### Security
+- `BRAINPAT_TOKEN` must be provided as an environment variable or Hugging Face Space Secret and never hardcoded in repository files or test scripts.
+- Public UI and documentation endpoints (`/`, `/console`, `/docs`, `/redoc`, `/health`, `/openapi.json`, `/meta/login-info`, `/api-docs`, `/favicon.ico`) must be excluded from `BrainPATMiddleware` and `BrainMiddleware` authentication checks. `GET /` redirects to `/console/`.
+
+### Testing and Documentation Rules
+- Functional API endpoints (e.g., `/retrieve/context`, `/retrieve/search`) must be explicitly documented in `Agent.md` under the `### Functional Endpoints` section, including their Method, Path, Purpose, Request, and Response structures.
+- API endpoints documented in `Agent.md` should strictly match the actual implementation (route decorators and Pydantic models). The canonical HTTP method (e.g., POST) should be presented as the primary interface, without modifying API behavior just to match docs.
+- The local test suite must be executed using `PYTHONPATH=tests poetry run pytest` to resolve import errors for test helper modules.
+- `Config` in `src/config.py` conditionally instantiates database sub-configurations (`mongo`, `milvus`, `neo4j`, `postgresql`) based on `DATA_DB`, `VECTOR_DB`, and `GRAPH_DB` environment variables.
