@@ -8,6 +8,8 @@ import time
 
 from src.services.auth_config import resolve_system_pat
 
+_legacy_warning_at = 0
+
 
 class AuthError(Exception):
     def __init__(self, status=401, code="AUTH_INVALID"):
@@ -46,6 +48,9 @@ class AuthService:
         self._legacy_warning_at = 0
 
     def authenticate_token(self, token: str | None) -> Principal:
+        global _legacy_warning_at
+        if isinstance(token, Principal):
+            return self.revalidate(token)
         if not token:
             raise AuthError()
         canonical = resolve_system_pat()
@@ -62,12 +67,34 @@ class AuthService:
             raise AuthError()
         brain = self.data.get_brain_by_pat(token)
         if brain and brain.pat and secrets.compare_digest(token, brain.pat):
-            if time.monotonic() - self._legacy_warning_at > 300:
+            if time.monotonic() - _legacy_warning_at > 300:
                 logging.getLogger(__name__).warning("Legacy Brain credential used; rotate to a named access token.")
-                self._legacy_warning_at = time.monotonic()
+                _legacy_warning_at = time.monotonic()
             return Principal("access_token", brain.id, brain.name_key,
                              frozenset({"memory:read", "memory:write", "brain:read"}),
                              legacy=True, credential_hash=token_digest(token))
+        if self.token_store is not None:
+            row = self.token_store.find_by_hash(token_digest(token))
+            if row:
+                principal = self._token_principal(row)
+                self.token_store.touch(row["id"])
+                return principal
+        raise AuthError()
+
+    def revalidate(self, principal):
+        if principal.is_system:
+            canonical = resolve_system_pat()
+            if canonical and secrets.compare_digest(token_digest(canonical), principal.credential_hash or ""):
+                return principal
+        elif principal.token_id:
+            row = self.token_store.get(principal.token_id)
+            if row:
+                return self._token_principal(row)
+        else:
+            brain = self.data.get_brain(principal.brain_id)
+            if (brain and brain.id == principal.subject_id and brain.pat
+                    and secrets.compare_digest(token_digest(brain.pat), principal.credential_hash or "")):
+                return principal
         raise AuthError()
 
     def _token_principal(self, row):
@@ -77,7 +104,7 @@ class AuthService:
         if brain is None or brain.id != row["brain_resource_id"]:
             raise AuthError()
         return Principal("access_token", row["id"], row["brain_id"],
-                         frozenset(row["permissions"]), token_id=row["id"])
+                         frozenset(row["permissions"]), token_id=row["id"], legacy=bool(row.get("legacy", False)))
 
     def authorize_workspace(self, principal, brain_id, permission="memory:read"):
         if principal.is_system:

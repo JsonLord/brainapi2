@@ -38,22 +38,7 @@ class ConsoleSessions:
         snapshot = record["principal"]
         snapshot["permissions"] = frozenset(snapshot["permissions"])
         principal = Principal(**snapshot)
-        # Recheck the originating credential on EVERY request: revocation and
-        # expiry must also terminate browser sessions, not just agent access.
-        if principal.is_system:
-            canonical = resolve_system_pat()
-            if not canonical or not secrets.compare_digest(principal.credential_hash or "", token_digest(canonical)):
-                raise AuthError()
-        elif principal.token_id:
-            row = service.token_store.get(principal.token_id)
-            if not row:
-                raise AuthError()
-            principal = service._token_principal(row)
-        else:
-            brain = service.data.get_brain(principal.brain_id)
-            if (not brain or not brain.pat or brain.id != principal.subject_id
-                    or not secrets.compare_digest(token_digest(brain.pat), principal.credential_hash or "")):
-                raise AuthError()
+        principal = service.revalidate(principal)
         return principal, record["csrf"]
 
     def revoke(self, cookie):

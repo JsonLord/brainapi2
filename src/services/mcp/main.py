@@ -351,10 +351,15 @@ async def list_brains() -> list[str] | str:
     return await asyncio.to_thread(_list_brains_sync)
 
 
-def _workspace_context():
+def _workspace_context(permission="memory:read"):
     context = brain_context_var.get()
     if context is None:
         raise ValueError("Use the workspace MCP endpoint /brains/{slug}/mcp")
+    credential = auth_token_var.get()
+    if credential:
+        from src.services.auth import get_auth_service
+        service = get_auth_service(data_adapter)
+        service.authorize_workspace(service.authenticate_token(credential), context.brain_id, permission)
     return context
 
 
@@ -378,7 +383,7 @@ async def memory_context(query: str, max_tokens: int = 4000) -> dict:
 async def memory_store(
     text: str, metadata: dict | None = None, idempotency_key: str | None = None
 ) -> dict:
-    context = _workspace_context()
+    context = _workspace_context("memory:write")
     request = type(
         "MCPMemoryRequest",
         (),

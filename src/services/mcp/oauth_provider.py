@@ -1,4 +1,6 @@
 import json
+from dataclasses import asdict
+from src.services.auth import AuthError, Principal, get_auth_service
 import secrets
 import time
 from urllib.parse import urlencode
@@ -281,6 +283,13 @@ class BrainapiMcpOAuthProvider(
         if at.expires_at and at.expires_at < int(time.time()):
             self._delete_access_token(token, at.client_id)
             return None
+        try:
+            reference = self.get_pat_for_access_token(token)
+            if reference is None:
+                return None
+            get_auth_service().revalidate(reference)
+        except AuthError:
+            return None
         return at
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
@@ -293,7 +302,15 @@ class BrainapiMcpOAuthProvider(
             )
 
     def get_pat_for_access_token(self, token: str) -> str | None:
-        return self._get_text(self._access_pat_key(token))
+        raw = self._get_text(self._access_pat_key(token))
+        if not raw:
+            return None
+        try:
+            snapshot = json.loads(raw)
+            snapshot["permissions"] = frozenset(snapshot["permissions"])
+            return get_auth_service().revalidate(Principal(**snapshot))
+        except (ValueError, TypeError, AuthError):
+            return None
 
     def issue_auth_code(
         self,
@@ -318,8 +335,11 @@ class BrainapiMcpOAuthProvider(
             redirect_uri_provided_explicitly=redirect_uri_provided_explicitly,
             resource=resource,
         )
+        principal = get_auth_service().authenticate_token(brainpat)
+        snapshot = asdict(principal)
+        snapshot["permissions"] = sorted(principal.permissions)
         self._set_model(self._auth_code_key(code), ac, self._auth_code_ttl)
-        self._set_text(self._code_pat_key(code), brainpat, self._auth_code_ttl)
+        self._set_text(self._code_pat_key(code), json.dumps(snapshot), self._auth_code_ttl)
         return code
 
     def redirect_after_consent(

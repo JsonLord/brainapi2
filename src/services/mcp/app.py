@@ -173,7 +173,16 @@ class AuthContextMiddleware:
                     return await reject(404, "Workspace not found")
                 if workspace.archived:
                     return await reject(410, "Workspace is archived")
-                access = guard_brainpat(token)
+                from src.services.auth import get_auth_service, AuthError
+                try:
+                    service = get_auth_service(data_adapter)
+                    principal = service.authenticate_token(token)
+                    service.authorize_workspace(principal, workspace.brain_id)
+                    if data_adapter.get_brain(workspace.brain_id) is None:
+                        return await reject(404, "BRAIN_NOT_FOUND")
+                    access = True if principal.is_system else principal.brain_id
+                except AuthError as error:
+                    return await reject(error.status, error.code)
                 if not access:
                     return await reject(401, "Invalid BrainPAT")
                 if access is not True and access != workspace.brain_id:
