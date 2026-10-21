@@ -17,6 +17,10 @@ from contextvars import ContextVar
 from typing import Any
 
 from mcp.server import FastMCP
+from mcp.server.fastmcp.server import Settings as MCPSettings
+# MCP 1.28 Settings references FastMCP before its definition; rebuild once the
+# upstream module is fully imported rather than suppressing Pydantic warnings.
+MCPSettings.model_rebuild()
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from pydantic import AnyHttpUrl, AnyUrl
 from starlette.requests import Request

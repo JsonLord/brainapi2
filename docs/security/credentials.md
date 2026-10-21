@@ -35,3 +35,27 @@ Canonical routes are `POST /system/brains`, `POST /system/workspaces`,
 `GET /brains/{slug}/agent/capabilities`, and the workspace Native/Agent OpenAPI
 URLs. `/meta/login-info` is deprecated; use `/auth/me`. Do not guess `/brains`,
 `/agent/capabilities`, or workspace `/api/meta/login-info` aliases.
+
+## Runtime release gates
+
+The default trace sink is `TRACE_MODE=log`; `disabled` disables traces and `queue`
+is an explicit opt-in for a consumer. Queue saturation is bounded and warnings
+are limited to once per minute with an accumulated drop count. The HF monitor
+checks configured PostgreSQL, Redis, and Ollama only. Logs and trace payloads use
+shared credential/header/URL redaction.
+
+`/health` exposes `persistence.mode`, `root`, and `production_ready`. A durable
+root is an operator-provided persistent mount (`/data` by default, or
+`BRAINAPI_DURABLE_ROOT`). Merely creating a directory on ephemeral storage does
+not make it durable: operators must attach an actual durable volume. With no
+root, production startup requires `ALLOW_EPHEMERAL_STORAGE=true` for staging or
+recovery; this override never grants production GO. An explicitly configured
+`PERSISTENCE_MODE` must agree with detection.
+
+New PostgreSQL clusters use UTF-8 and SCRAM host authentication with local peer
+authentication. Existing clusters are retained unchanged; audit/upgrade their
+encoding and authentication separately without destructive initialization.
+The Celery worker runs as `appuser`. MCP 1.28's upstream `Settings.lifespan`
+forward reference is rebuilt after importing `FastMCP`; no warning suppression
+is installed. The existing Starlette `httpx` TestClient deprecation is unrelated
+and remains visible in test results.

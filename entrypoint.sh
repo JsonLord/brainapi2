@@ -44,22 +44,24 @@ export REDIS_PORT="${REDIS_PORT:-6379}"
 export DEFAULT_BRAIN_FALLBACK="${DEFAULT_BRAIN_FALLBACK:-false}"
 export MCP_PORT="${MCP_PORT:-8001}"
 
-# Persistent root determination
-if [ -d "/data" ]; then
-    PERSISTENT_ROOT="/data/brainapi"
-else
-    PERSISTENT_ROOT="/app/.data/brainapi"
-    echo "WARNING: /data persistent storage unavailable; BrainAPI state will not survive container replacement/rebuild."
+# Resolve the one administrator credential before starting any services.
+/app/.venv/bin/python -c 'from src.services.auth_config import resolve_system_pat; resolve_system_pat()'
+export TRACE_MODE="${TRACE_MODE:-log}"
+export BRAINAPI_DURABLE_ROOT="${BRAINAPI_DURABLE_ROOT:-/data}"
+export PERSISTENT_ROOT="$(/app/.venv/bin/python -c 'from src.services.persistence import enforce_persistence; print(enforce_persistence()["root"])')"
+export PERSISTENCE_MODE="$(/app/.venv/bin/python -c 'from src.services.persistence import persistence_state; print(persistence_state()["mode"])')"
+if [ "$PERSISTENCE_MODE" = "ephemeral" ]; then
+    echo "WARNING: staging/recovery mode; ephemeral storage is NOT PRODUCTION DURABLE."
 fi
-
 mkdir -p "$PERSISTENT_ROOT/postgres" "$PERSISTENT_ROOT/redis" /var/lib/postgresql
-chmod -R 777 "$PERSISTENT_ROOT" /var/lib/postgresql
-chown -R postgres "$PERSISTENT_ROOT/postgres" /var/lib/postgresql 2>/dev/null || true
+chmod 0750 "$PERSISTENT_ROOT" "$PERSISTENT_ROOT/redis"
+chmod 0700 "$PERSISTENT_ROOT/postgres"
+chown -R postgres "$PERSISTENT_ROOT/postgres" /var/lib/postgresql
 
 SECRETS_FILE="$PERSISTENT_ROOT/internal-secrets.env"
 if [ ! -f "$SECRETS_FILE" ]; then
-    PG_PASS="$(openssl rand -hex 16 2>/dev/null || date +%s%N | sha256sum | head -c 32)"
-    RED_PASS="$(openssl rand -hex 16 2>/dev/null || date +%s%N | sha256sum | head -c 32)"
+    PG_PASS="$(/app/.venv/bin/python -c "import secrets; print(secrets.token_hex(32))")"
+    RED_PASS="$(/app/.venv/bin/python -c "import secrets; print(secrets.token_hex(32))")"
     cat <<EOF > "$SECRETS_FILE"
 POSTGRES_PASSWORD=$PG_PASS
 REDIS_PASSWORD=$RED_PASS
@@ -79,6 +81,7 @@ export CELERY_RESULT_BACKEND="redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
 # or reinitializing the already-running application services.
 case "${1:-}" in
     --qualify) exec /app/.venv/bin/python /app/scripts/qualify_hf_embeddings.py ;;
+    --qualify-auth) exec /app/.venv/bin/python /app/scripts/qualify_auth.py ;;
     --qualify-registry) exec /app/.venv/bin/python /app/scripts/qualify_brain_registry.py ;;
 esac
 
@@ -99,7 +102,7 @@ export PGDATA
 chown -R postgres "$PGDATA" /var/lib/postgresql 2>/dev/null || true
 
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
-    su - postgres -c "/usr/lib/postgresql/15/bin/initdb -D '$PGDATA'"
+    su - postgres -c "/usr/lib/postgresql/15/bin/initdb -D '$PGDATA' --encoding=UTF8 --locale=C.UTF-8 --auth-local=peer --auth-host=scram-sha-256"
     echo "listen_addresses = '127.0.0.1'" >> "$PGDATA/postgresql.conf"
 fi
 
@@ -113,7 +116,7 @@ appendonly yes
 appendfilename "appendonly.aof"
 protected-mode no
 EOF
-chmod -R 777 "$PERSISTENT_ROOT/redis"
+chmod 0750 "$PERSISTENT_ROOT/redis"
 
 # Ensure legacy background instances are stopped before clean startup
 su - postgres -c "/usr/lib/postgresql/15/bin/pg_ctl -D '$PGDATA' -m immediate stop" 2>/dev/null || true
@@ -145,10 +148,6 @@ until REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h 127.0.0.1 -p $REDIS_PORT ping
 done
 
 echo "[entrypoint] Verifying BrainAPI workspace bootstrap..."
-if [ -z "${BRAINPAT_TOKEN:-}" ]; then
-    echo "ERROR: BRAINPAT_TOKEN must be configured as a Hugging Face Space Secret." >&2
-    exit 1
-fi
 
 /app/.venv/bin/python -c "
 from src.services.data.main import data_adapter

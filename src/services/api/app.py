@@ -97,6 +97,14 @@ async def lifespan(app: FastAPI):
     from src.core.plugins.context import PluginContext
     from src.core.plugins.loader import PluginLoader
 
+    from src.services.persistence import enforce_persistence
+    enforce_persistence()
+    from src.services.auth_config import resolve_system_pat
+    resolve_system_pat()
+    from src.config import config
+    if config.data_db == "postgresql":
+        from src.services.credentials import token_repository
+        token_repository.initialize()
     start_runtime_monitoring("brainapi-api")
     ctx = PluginContext.from_app(app)
     loader = PluginLoader(plugins_dir=PLUGINS_DIR, context=ctx)

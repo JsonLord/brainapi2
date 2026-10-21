@@ -45,7 +45,6 @@ class AuthService:
     def __init__(self, data, token_store=None):
         self.data = data
         self.token_store = token_store
-        self._legacy_warning_at = 0
 
     def authenticate_token(self, token: str | None) -> Principal:
         global _legacy_warning_at
@@ -105,6 +104,29 @@ class AuthService:
             raise AuthError()
         return Principal("access_token", row["id"], row["brain_id"],
                          frozenset(row["permissions"]), token_id=row["id"], legacy=bool(row.get("legacy", False)))
+
+    def _require_system(self, principal):
+        if not principal.is_system:
+            raise AuthError(403, "FORBIDDEN")
+
+    def create_access_token(self, principal, *, brain_id, label, permissions, expires_at=None):
+        self._require_system(principal)
+        from src.services.brain_identity import validate_brain_id, BrainNotFoundError
+        brain = self.data.get_brain(validate_brain_id(brain_id))
+        if brain is None:
+            raise BrainNotFoundError("Brain not found")
+        if not label.strip():
+            raise ValueError("A token label is required")
+        return self.token_store.create(brain=brain, label=label.strip(), permissions=permissions,
+                                       expires_at=expires_at, created_by=principal.subject_id)
+
+    def list_access_tokens(self, principal, brain_id=None):
+        self._require_system(principal)
+        return self.token_store.list(brain_id)
+
+    def revoke_access_token(self, principal, token_id):
+        self._require_system(principal)
+        return self.token_store.revoke(token_id)
 
     def authorize_workspace(self, principal, brain_id, permission="memory:read"):
         if principal.is_system:

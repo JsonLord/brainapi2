@@ -7,7 +7,6 @@ from dataclasses import asdict
 from functools import lru_cache
 
 from src.services.auth import AuthError, Principal, token_digest
-from src.services.auth_config import resolve_system_pat
 
 SESSION_COOKIE = "__Host-brainapi-session"
 

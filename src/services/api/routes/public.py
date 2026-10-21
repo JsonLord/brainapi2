@@ -20,6 +20,7 @@ class HealthResponse(BaseModel):
     status: str = Field(description="Service health status.")
     service: str = Field(description="Service name.")
     version: str = Field(description="Running BrainAPI version.")
+    persistence: dict = Field(default_factory=dict, description="Non-secret durability and release status.")
 
 
 PUBLIC_ERROR_RESPONSES = {
@@ -40,7 +41,10 @@ public_router = APIRouter(tags=["public"])
 async def health() -> HealthResponse:
     """Return public liveness metadata without accessing customer data."""
 
-    return HealthResponse(status="ok", service="brainapi", version=BRAIN_VERSION)
+    from src.services.persistence import persistence_state
+    state = persistence_state()
+    return HealthResponse(status="ok" if state["mode"] == "durable" else "degraded",
+                          service="brainapi", version=BRAIN_VERSION, persistence=state)
 
 
 @public_router.get(

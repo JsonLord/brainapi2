@@ -24,6 +24,8 @@ def check_origin(request):
 @auth_router.post("/session")
 async def login(body: SessionLogin, request: Request, response: Response):
     check_origin(request)
+    if request.url.scheme != "https" and os.getenv("ENV", "production") != "development":
+        raise HTTPException(400, "HTTPS_REQUIRED")
     try:
         principal = get_auth_service().authenticate_token(body.token.get_secret_value())
     except AuthError as error:

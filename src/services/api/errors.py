@@ -7,6 +7,8 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from src.services.redaction import redact
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, JsonValue
@@ -156,7 +158,12 @@ def install_error_handlers(app: FastAPI) -> None:
         return error_response(
             request,
             status_code=422,
-            detail=exc.errors(),
+            # Pydantic puts exception objects in ctx.error; input may contain
+            # credentials and is unnecessary for actionable field diagnostics.
+            detail=redact(jsonable_encoder(
+                [{k: v for k, v in error.items() if k != "input"} for error in exc.errors()],
+                custom_encoder={ValueError: str, TypeError: str, Exception: str},
+            )),
         )
 
     @app.exception_handler(BrainNotFoundError)

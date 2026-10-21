@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc -b --pretty false",
-    "test": "node --test src/workspaces/workspaceRoutes.test.mjs",
+    "test": "node --test src/workspaces/workspaceRoutes.test.mjs src/lib/*.test.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

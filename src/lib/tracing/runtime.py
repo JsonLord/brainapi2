@@ -44,7 +44,7 @@ class RuntimeMonitor:
         self.resource_interval_seconds = _interval(
             resource_interval_seconds, "TRACE_RESOURCE_INTERVAL_SECONDS", 30
         )
-        self.probes = probes or default_health_probes()
+        self.probes = default_health_probes() if probes is None else probes
         self.resource_sampler = resource_sampler or sample_process_resources
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -251,30 +251,26 @@ def runtime_tracing_lifespan(service_name: str, nested_lifespan=None):
 
 
 def default_health_probes() -> list[HealthProbe]:
-    return [
-        _probe_from_env("redis", "REDIS_HOST", "REDIS_PORT"),
-        _probe_from_env("mongo", "MONGO_HOST", "MONGO_PORT"),
-        _probe_from_env("neo4j", "NEO4J_HOST", "NEO4J_PORT"),
-        _probe_from_env("milvus", "MILVUS_HOST", "MILVUS_PORT"),
-        _probe_from_env("rabbitmq", "RABBITMQ_HOST", "RABBITMQ_PORT"),
-    ]
-
-
-def _probe_from_env(name: str, host_var: str, port_var: str) -> HealthProbe:
-    defaults = {
-        "redis": ("localhost", 6379),
-        "mongo": ("localhost", 27017),
-        "neo4j": ("localhost", 7687),
-        "milvus": ("localhost", 19530),
-        "rabbitmq": ("localhost", 5672),
-    }
-    default_host, default_port = defaults[name]
-    return HealthProbe(
-        name=name,
-        host=os.getenv(host_var, default_host),
-        port=int(os.getenv(port_var, str(default_port))),
-        timeout_seconds=float(os.getenv("TRACE_HEALTH_TIMEOUT_SECONDS", "1")),
-    )
+    from src.config import config
+    active = {"redis": ("REDIS_HOST", "REDIS_PORT", "localhost", 6379)}
+    if config.data_db == "postgresql" or config.vector_db == "postgresql" or config.graph_db == "networkx":
+        active["postgresql"] = ("POSTGRES_HOST", "POSTGRES_PORT", "localhost", 5432)
+    if config.data_db == "mongo":
+        from urllib.parse import urlparse
+        parsed = urlparse(os.getenv("MONGO_CONNECTION_STRING", "mongodb://localhost:27017"))
+        active["mongo"] = ("MONGO_HOST", "MONGO_PORT", parsed.hostname or "localhost", parsed.port or 27017)
+    if config.graph_db == "neo4j":
+        active["neo4j"] = ("NEO4J_HOST", "NEO4J_PORT", "localhost", 7687)
+    if config.vector_db == "milvus":
+        active["milvus"] = ("MILVUS_HOST", "MILVUS_PORT", "localhost", 19530)
+    if os.getenv("CELERY_BACKEND", "rabbitmq") == "rabbitmq":
+        active["rabbitmq"] = ("RABBITMQ_HOST", "RABBITMQ_PORT", "localhost", 5672)
+    if "ollama" in {config.embeddings_provider, config.llm_small_provider, config.llm_large_provider}:
+        active["ollama"] = ("OLLAMA_HOST", "OLLAMA_PORT", "localhost", 11434)
+    return [HealthProbe(name=name, host=os.getenv(host, fallback_host),
+                        port=int(os.getenv(port, str(fallback_port))),
+                        timeout_seconds=float(os.getenv("TRACE_HEALTH_TIMEOUT_SECONDS", "1")))
+            for name, (host, port, fallback_host, fallback_port) in active.items()]
 
 
 def probe_tcp(probe: HealthProbe) -> bool:

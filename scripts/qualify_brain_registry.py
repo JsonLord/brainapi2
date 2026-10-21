@@ -12,6 +12,7 @@ from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import httpx
+from src.config import config
 
 from src.core.instances import cache_adapter, data_adapter, graph_adapter, vector_store_adapter
 from src.lib.postgresql._naming import brain_db_name
@@ -66,7 +67,7 @@ def qualify():
     created = set()
     results = {}
     api_url = os.getenv('QUALIFY_API_URL', 'http://127.0.0.1:7860')
-    with httpx.Client(base_url=api_url, headers={'BrainPAT': os.environ['BRAINPAT_TOKEN']},
+    with httpx.Client(base_url=api_url, headers={'BrainPAT': config.system_pat},
                       timeout=120, trust_env=False) as api:
         before_ids = identities(api)
         before = storage_snapshot()

@@ -27,9 +27,10 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=600)
     args = parser.parse_args()
 
-    token = os.getenv("BRAINPAT_TOKEN")
+    from src.services.auth_config import resolve_system_pat
+    token = resolve_system_pat()
     if not token:
-        print("BRAINPAT_TOKEN is required", file=sys.stderr)
+        print("SYSTEM_PAT is required", file=sys.stderr)
         return 2
     try:
         args.brain = validate_brain_id(args.brain)
@@ -83,7 +84,8 @@ def main() -> int:
         timeout=30,
     )
     accepted.raise_for_status()
-    task_id = accepted.json()["task_id"]
+    from src.services.task_contract import accepted_task_id
+    task_id = accepted_task_id(accepted.status_code, accepted.json())
 
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:

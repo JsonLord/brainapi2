@@ -21,7 +21,7 @@ from src.services.api.constants.responses import LoginInfoResponse, StringListRe
 
 meta_router = APIRouter(prefix="/meta", tags=["meta"])
 
-@meta_router.get(path="/login-info", response_model=LoginInfoResponse)
+@meta_router.get(path="/login-info", response_model=LoginInfoResponse, deprecated=True)
 async def get_login_info(request: Request):
     """
     Resolve whether a BrainPAT is the system token or scoped to a single brain.

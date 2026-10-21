@@ -105,6 +105,8 @@ def _write_merged(path: Path, key: str, value: dict[str, Any]) -> None:
 def _wait_for_task(
     client: Client, task_id: str, brain_id: str, token: str, timeout: float
 ) -> dict[str, Any]:
+    if not isinstance(task_id, str) or task_id.strip().lower() in {"", "none", "null"}:
+        raise ValueError("INGESTION_CONTRACT_ERROR: invalid task identifier")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         status, result, _ = client.request(
@@ -207,7 +209,9 @@ def exercise(args: argparse.Namespace) -> None:
         body={"brain_id": brain_id},
         expected={200},
     )
-    brain_token = brain["pat"]
+    _, issued, _ = client.request("POST", "/system/access-tokens", body={"brain_id": brain_id,
+        "label": "production-smoke", "permissions": ["memory:read", "memory:write"]}, expected={201})
+    brain_token = issued["token"]
     flows["brain_creation"] = brain.get("name_key") == brain_id
 
     source_text = "BrainAPI deterministic production proof: " + " ".join(markers)

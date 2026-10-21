@@ -1,3 +1,4 @@
+import PersistenceWarning from "./PersistenceWarning";
 import { useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -83,6 +84,7 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col bg-lumen-background">
+      <PersistenceWarning />
       <SkipLink href="#console-main">Skip to main content</SkipLink>
       <GlobalHeader sticky className="border-b border-lumen-border">
         <GlobalHeaderInner className="max-w-none">

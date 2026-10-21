@@ -1,3 +1,4 @@
+import { requireAcceptedTask } from "./ingestContract.mjs";
 import { clearSession, loadSession, saveSession, normalizeBaseUrl, type AuthSession } from "./auth";
 
 export class ApiError extends Error {
@@ -106,6 +107,9 @@ export async function apiFetch<T>(
     throw new ApiError(response.status, detail);
   }
 
+  if ((path.startsWith("/ingest/") || path.includes("/agent/memories")) && options.method === "POST") {
+    requireAcceptedTask(response.status, data);
+  }
   return data as T;
 }
 

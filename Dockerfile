@@ -89,7 +89,7 @@ RUN --mount=type=secret,id=proxy_ca \
     && cd /tmp/pgvector && make && make install \
     && rm -rf /tmp/pgvector /root/.cache
 
-COPY pyproject.toml poetry.lock ./
+COPY --chmod=644 pyproject.toml poetry.lock ./
 
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then \
@@ -104,7 +104,7 @@ RUN --mount=type=secret,id=proxy_ca \
     && /app/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')" \
     && rm -rf /root/.cache /tmp/*
 
-COPY src/ ./src/
+COPY --chmod=755 src/ ./src/
 COPY scripts/preload_docker_models.py ./scripts/
 
 RUN if [ "$INSTALL_LOCAL_ML" = "true" ]; then \
@@ -115,9 +115,9 @@ RUN if [ "$INSTALL_LOCAL_ML" = "true" ]; then \
 # Validate small runtime inputs before combining them with large dependencies.
 FROM debian:bookworm-slim AS runtime-config
 WORKDIR /runtime/app
-COPY deploy/ ./deploy/
+COPY --chmod=755 deploy/ ./deploy/
 COPY entrypoint.sh ./
-COPY scripts/ ./scripts/
+COPY --chmod=755 scripts/ ./scripts/
 RUN test -f scripts/start_with_ollama.py \
     && test -f scripts/preload_ollama_models.sh \
     && chmod +x entrypoint.sh

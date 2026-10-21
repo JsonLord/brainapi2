@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Iterator, Optional
 
+from src.services.redaction import redact
 from src.lib.tracing.events import TraceEvent, TraceEventType, TraceSeverity
 from src.lib.tracing.subscribers import TraceSubscriber
 
@@ -56,7 +57,13 @@ class TraceTracker:
         downtime_ms: Optional[float] = None,
         expensive_loop_iterations: Optional[int] = None,
         enabled: Optional[bool] = None,
+        mode: Optional[str] = None,
     ):
+        self.mode = mode or ("queue" if queue is not None else os.getenv("TRACE_MODE", "log"))
+        if self.mode not in {"disabled", "log", "queue"}:
+            raise ValueError("TRACE_MODE must be disabled, log, or queue")
+        self.dropped_events = 0
+        self._last_drop_warning = float("-inf")
         self.queue = queue or LocalTraceQueue(
             max_queue_size
             if max_queue_size is not None
@@ -126,7 +133,7 @@ class TraceTracker:
         metadata: Optional[dict[str, Any]] = None,
         exception: Optional[BaseException] = None,
     ) -> Optional[TraceEvent]:
-        if not self.enabled:
+        if not self.enabled or self.mode == "disabled":
             return None
         event_trace_id = trace_id or _trace_id_var.get()
         event_message = message or (str(exception) if exception else None)
@@ -142,14 +149,22 @@ class TraceTracker:
             threshold_ms=threshold_ms,
             status_code=status_code,
             error_type=type(exception).__name__ if exception else None,
-            message=event_message,
-            metadata=dict(metadata or {}),
+            message=redact(event_message),
+            metadata=redact(dict(metadata or {})),
             stack_trace=(
-                "".join(traceback.format_exception(exception)) if exception else None
+                redact("".join(traceback.format_exception(exception))) if exception else None
             ),
         )
+        if self.mode == "log":
+            level = {"info": logging.INFO, "warning": logging.WARNING, "error": logging.ERROR, "critical": logging.CRITICAL}[event.severity.value]
+            logger.log(level, "%s %s", event.name, event.to_dict())
+            return event
         if not self.queue.put_nowait(event):
-            logger.warning("Trace queue is full; dropping event %s", event.name)
+            self.dropped_events += 1
+            now = time.monotonic()
+            if now - self._last_drop_warning >= 60:
+                logger.warning("Trace queue saturated; dropped events=%d", self.dropped_events)
+                self._last_drop_warning = now
             return None
         return event
 

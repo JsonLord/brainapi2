@@ -97,7 +97,7 @@ This document serves as the guide and best practices for automated agents deploy
 ### /retrieve/context
 - **Method:** POST
 - **Purpose:** Retrieve an entity's contextual information based on a given text, generating triples and passages.
-- **Authentication:** Requires `BrainPAT` header or Bearer token unless using the system fallback.
+- **Authentication:** Requires `BrainPAT` header or Bearer token verified by the central AuthService.
 - **Request (JSON):**
   - `text` (str, required): The text to search context for.
   - `brain_id` (str, optional, default: `"default"`): The brain/workspace identifier to query.
@@ -151,7 +151,7 @@ This document serves as the guide and best practices for automated agents deploy
 ### /retrieve/search
 - **Method:** POST (Canonical) / GET (Compatibility)
 - **Purpose:** Execute a ranked search across passages, entities, events, communities, and plugins with optional re-ranking.
-- **Authentication:** Requires `BrainPAT` header or Bearer token unless using the system fallback.
+- **Authentication:** Requires `BrainPAT` header or Bearer token verified by the central AuthService.
 - **Request (POST JSON or GET Query Params):**
   - `query` (str, required): The search query.
   - `brain_id` (str, optional, default: `"default"`): The brain identifier to query.
@@ -243,7 +243,7 @@ production deployment until both the full build and real qualification pass.
 
 ### Security
 - `SYSTEM_PAT` must be provided as an environment variable or Hugging Face Space Secret and never hardcoded in repository files or test scripts.
-- Public UI and documentation endpoints (`/`, `/console`, `/docs`, `/redoc`, `/health`, `/openapi.json`, `/meta/login-info`, `/api-docs`, `/favicon.ico`) must be excluded from `BrainPATMiddleware` and `BrainMiddleware` authentication checks. `GET /` redirects to `/console/`.
+- Public UI and documentation endpoints (`/`, `/console`, `/docs`, `/redoc`, `/health`, `/openapi.json`, `/api-docs`, `/favicon.ico`) must be excluded from `BrainPATMiddleware` and `BrainMiddleware` authentication checks. `GET /` redirects to `/console/`.
 
 ### Testing and Documentation Rules
 - Functional API endpoints (e.g., `/retrieve/context`, `/retrieve/search`) must be explicitly documented in `Agent.md` under the `### Functional Endpoints` section, including their Method, Path, Purpose, Request, and Response structures.
@@ -277,10 +277,23 @@ production deployment until both the full build and real qualification pass.
 
 ### Security
 - `SYSTEM_PAT` must be provided as an environment variable or Hugging Face Space Secret and never hardcoded in repository files or test scripts.
-- Public UI and documentation endpoints (`/`, `/console`, `/docs`, `/redoc`, `/health`, `/openapi.json`, `/meta/login-info`, `/api-docs`, `/favicon.ico`) must be excluded from `BrainPATMiddleware` and `BrainMiddleware` authentication checks. `GET /` redirects to `/console/`.
+- Public UI and documentation endpoints (`/`, `/console`, `/docs`, `/redoc`, `/health`, `/openapi.json`, `/api-docs`, `/favicon.ico`) must be excluded from `BrainPATMiddleware` and `BrainMiddleware` authentication checks. `GET /` redirects to `/console/`.
 
 ### Testing and Documentation Rules
 - Functional API endpoints (e.g., `/retrieve/context`, `/retrieve/search`) must be explicitly documented in `Agent.md` under the `### Functional Endpoints` section, including their Method, Path, Purpose, Request, and Response structures.
 - API endpoints documented in `Agent.md` should strictly match the actual implementation (route decorators and Pydantic models). The canonical HTTP method (e.g., POST) should be presented as the primary interface, without modifying API behavior just to match docs.
 - The local test suite must be executed using `PYTHONPATH=tests poetry run pytest` to resolve import errors for test helper modules.
 - `Config` in `src/config.py` conditionally instantiates database sub-configurations (`mongo`, `milvus`, `neo4j`, `postgresql`) based on `DATA_DB`, `VECTOR_DB`, and `GRAPH_DB` environment variables.
+
+## Credential model
+
+`SYSTEM_PAT` is the single administrator credential across HTTP, console, and MCP.
+The deprecated `BRAINPAT_TOKEN` may only alias that same value; a conflict fails
+startup. Brains/workspaces do not generate credentials. Issue named access tokens
+via `/system/access-tokens`, copy the plaintext once, and revoke independently.
+Browser login uses `/auth/session` and `/auth/me`; a system session has no selected
+brain (`brain_id=null`). The console stores no submitted access credential.
+See `docs/security/credentials.md` for legacy migration and exposed-token rotation.
+
+`/health` reports durability. Ephemeral staging requires explicit
+`ALLOW_EPHEMERAL_STORAGE=true` and remains degraded / production NO-GO.

@@ -21,6 +21,9 @@ _env_name = os.getenv("ENV")
 _env_path = _project_root / f".env{'.' + _env_name if _env_name else ''}"
 dotenv.load_dotenv(dotenv_path=_env_path)
 
+from src.services.redaction import install_log_redaction
+install_log_redaction()
+
 logger = logging.getLogger(__name__)
 
 
@@ -514,6 +517,11 @@ class Config:
     Configuration class for the application.
     """
 
+    @property
+    def brainpat_token(self):
+        """Deprecated compatibility view of the sole administrator credential."""
+        return self.system_pat
+
     def __init__(self):
         """
         Initialize the application's central configuration by composing environment-backed sub-configurations and loading runtime flags.
@@ -525,8 +533,6 @@ class Config:
         """
         from src.services.auth_config import resolve_system_pat
         self.system_pat = resolve_system_pat()
-        # Deprecated alias: one resolved value, never a second administrator.
-        self.brainpat_token = self.system_pat
 
         self.models_mode = os.getenv("MODELS_MODE", "local")
         if self.models_mode not in _MODES:

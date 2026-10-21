@@ -271,7 +271,11 @@ class BrainapiMcpOAuthProvider(
     async def load_access_token(self, token: str) -> AccessToken | None:
         at = self._get_model(self._access_key(token), AccessToken)
         if at is None:
-            if self._pat_verifier(token):
+            try:
+                get_auth_service().authenticate_token(token)
+            except AuthError:
+                return None
+            else:
                 return AccessToken(
                     token=token,
                     client_id="brainpat",

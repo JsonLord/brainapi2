@@ -167,6 +167,16 @@ class AuthContextMiddleware:
                 r"^/brains/(?P<slug>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)/mcp(?:/|$)",
                 scope.get("path", ""),
             )
+            from src.services.auth import get_auth_service, AuthError
+            if scope.get("path", "").startswith("/workspace/"):
+                return await reject(404, "RESOURCE_NOT_FOUND")
+            if match or scope.get("path", "").rstrip("/") == "/mcp":
+                try:
+                    principal = get_auth_service(data_adapter).authenticate_token(token)
+                except AuthError as error:
+                    return await reject(error.status, error.code)
+                except Exception:
+                    return await reject(503, "Authentication store unavailable")
             if match:
                 workspace = data_adapter.get_workspace(match.group("slug"))
                 if workspace is None:
@@ -187,6 +197,41 @@ class AuthContextMiddleware:
                     return await reject(401, "Invalid BrainPAT")
                 if access is not True and access != workspace.brain_id:
                     return await reject(403, "PAT cannot access this workspace")
+                if scope.get("method") == "POST":
+                    chunks = []
+                    while True:
+                        message = await receive()
+                        if message["type"] != "http.request":
+                            return
+                        chunks.append(message.get("body", b""))
+                        if sum(map(len, chunks)) > 2 * 1024 * 1024:
+                            return await reject(413, "INVALID_REQUEST")
+                        if not message.get("more_body", False):
+                            break
+                    body = b"".join(chunks)
+                    if body:
+                        try:
+                            payload = json.loads(body)
+                            calls = payload if isinstance(payload, list) else [payload]
+                            read_tools = {"memory_search", "memory_context", "memory_neighbors", "memory_entity", "memory_task_status"}
+                            for call in calls:
+                                if isinstance(call, dict) and call.get("method") == "tools/call":
+                                    tool_name = (call.get("params") or {}).get("name")
+                                    service.authorize_workspace(principal, workspace.brain_id,
+                                        "memory:read" if tool_name in read_tools else "memory:write")
+                        except AuthError as error:
+                            return await reject(error.status, error.code)
+                        except (ValueError, AttributeError, TypeError):
+                            return await reject(400, "INVALID_REQUEST")
+                    original_receive = receive
+                    delivered = False
+                    async def replay():
+                        nonlocal delivered
+                        if not delivered:
+                            delivered = True
+                            return {"type": "http.request", "body": body, "more_body": False}
+                        return await original_receive()
+                    receive = replay
                 context_token = brain_context_var.set(
                     BrainContext(
                         workspace_slug=workspace.slug,
@@ -206,7 +251,7 @@ class AuthContextMiddleware:
 
 
 async def _json_error(send, status_code: int, detail: str):
-    body = json.dumps({"detail": detail}).encode("utf-8")
+    body = json.dumps({"detail": detail, "error": {"code": detail if detail in {"AUTH_INVALID", "FORBIDDEN", "BRAIN_NOT_FOUND"} else "RESOURCE_NOT_FOUND"}}).encode("utf-8")
     await send(
         {
             "type": "http.response.start",

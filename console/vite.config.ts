@@ -30,6 +30,8 @@ export default defineConfig({
       "/retrieve": { target: "http://localhost:8000", changeOrigin: true },
       "/meta": { target: "http://localhost:8000", changeOrigin: true },
       "/tasks": { target: "http://localhost:8000", changeOrigin: true },
+      "/auth": { target: "http://localhost:8000", changeOrigin: true },
+      "/brains": { target: "http://localhost:8000", changeOrigin: true },
       "/system": { target: "http://localhost:8000", changeOrigin: true },
     },
   },
