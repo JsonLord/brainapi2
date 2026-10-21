@@ -1,8 +1,10 @@
 BrainAPI Unified Authentication, Credential Registry, Console Login & Runtime Hardening
 Status: Implementation specification  
 Repository: `JsonLord/brainapi2`  
-Target branch / PR: PR #8, branch `jules-4649944271521841670-0d5c9ccf`  
-Observed PR head: `784fecf82694cf5646d247836eb3f173b4a05941`  
+Implementation branch: `feat/unified-auth-runtime`  
+Source PR: #8, branch `jules-4649944271521841670-0d5c9ccf`  
+Verified implementation base: `eb08a1549754fab8ec2459bb4472644630d4cb99`  
+Original handoff PR head: `784fecf82694cf5646d247836eb3f173b4a05941`  
 Base registry fix: `fix/authoritative-brain-registry` at `42cde77950db2e24a1b7acbc3477274bd9cad06a`  
 Date: 2026-10-21
 ---
