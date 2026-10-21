@@ -100,14 +100,15 @@ export async function apiFetch<T>(
   }
 
   if (!response.ok) {
-    const detail =
-      typeof data === "object" && data && "detail" in data
-        ? String((data as { detail: unknown }).detail)
-        : `Request failed (${response.status})`;
+    const envelope = typeof data === "object" && data !== null ? data as {detail?: unknown; error?: {message?: string}} : null;
+    const reason = envelope?.detail;
+    const detail = typeof reason === "string" ? reason
+      : reason ? `${envelope?.error?.message ?? "Request failed"}: ${JSON.stringify(reason)}`
+      : envelope?.error?.message ?? `Request failed (${response.status})`;
     throw new ApiError(response.status, detail);
   }
 
-  if ((path.startsWith("/ingest/") || path.includes("/agent/memories")) && options.method === "POST") {
+  if ((path.startsWith("/ingest/") || path.includes("/agent/memory")) && options.method === "POST") {
     requireAcceptedTask(response.status, data);
   }
   return data as T;

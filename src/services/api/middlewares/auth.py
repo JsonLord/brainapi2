@@ -1,6 +1,7 @@
 """All HTTP authentication delegates to the shared identity service."""
 
 import secrets
+import re
 from src.services.console_sessions import SESSION_COOKIE, get_console_sessions
 from starlette.middleware.base import BaseHTTPMiddleware
 from src.services.api.console_static import is_console_path
@@ -17,7 +18,7 @@ class BrainPATMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if (request.method == "OPTIONS" or is_console_path(path)
                 or path in self.auth_exempt_paths
-                or any(path.startswith(p) for p in self.excluded_prefixes) or "/mcp" in path):
+                or any(path.startswith(p) for p in self.excluded_prefixes) or re.match(r"^/brains/[^/]+/mcp(?:/|$)", path) or path == "/mcp"):
             return await call_next(request)
         service = get_auth_service(data_adapter)
         try:
