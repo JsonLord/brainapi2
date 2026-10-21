@@ -21,7 +21,7 @@ export default function LoginPage() {
   const [apiBaseUrl, setApiBaseUrl] = useState(
     existing?.apiBaseUrl ?? defaultApiBaseUrl,
   );
-  const [pat, setPat] = useState(existing?.pat ?? "");
+  const [pat, setPat] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -31,6 +31,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const session = await connectSession(apiBaseUrl, pat);
+      setPat("");
       saveSession(session);
       setSession(session);
       navigate("/");
@@ -56,7 +57,7 @@ export default function LoginPage() {
             </span>
           </h1>
           <p className="mt-4 max-w-sm text-sm leading-relaxed text-lumen-muted-foreground">
-            Connect a local or remote BrainAPI instance with a BrainPAT, then
+            Connect a local or remote BrainAPI instance with an access token, then
             inspect memory, graph topology, vectors, and ingestion tasks.
           </p>
         </div>
@@ -70,7 +71,7 @@ export default function LoginPage() {
           <div>
             <dt className="text-lumen-muted-foreground">Auth modes</dt>
             <dd className="mt-1 text-lumen-foreground">
-              System PAT or per-brain PAT
+              Administrator or workspace token
             </dd>
           </div>
         </dl>
@@ -91,7 +92,7 @@ export default function LoginPage() {
             Connect instance
           </h2>
           <p className="mt-1 text-sm text-lumen-muted-foreground">
-            Use your API base URL and a BrainPAT token to enter the workspace.
+            Use your API base URL and an access token to enter the workspace.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-8">
@@ -106,22 +107,19 @@ export default function LoginPage() {
               />
               <PasswordField
                 id="login-brainpat"
-                label="BrainPAT"
+                label="Access token"
                 value={pat}
                 onChange={(e) => setPat(e.target.value)}
-                placeholder="brainpat_… or system token"
+                placeholder="bpat_… or administrator token"
                 required
               />
               <Callout title="Token types">
                 <p className="mb-2">
-                  <strong>System PAT</strong> — from{" "}
-                  <code>SYSTEM_PAT</code> in your <code>.env</code>. Starts
-                  on the default brain; switch brains from the header after
-                  login.
+                  <strong>Administrator token</strong> — from{" "}
+                  <code>SYSTEM_PAT</code> configured by your deployment operator. Select an available workspace after login.
                 </p>
                 <p>
-                  <strong>Per-brain PAT</strong> — returned when creating a
-                  brain. Scoped to that brain only.
+                  <strong>Workspace token</strong> — an explicitly created, named credential scoped to one workspace.
                 </p>
               </Callout>
               {error && (

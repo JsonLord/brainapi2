@@ -23,6 +23,7 @@ from src.services.api.openapi import install_openapi_contract
 
 from src.services.api.middlewares.auth import BrainPATMiddleware
 from src.services.api.middlewares.brains import BrainMiddleware
+from src.services.api.routes.auth import auth_router
 from src.services.api.routes.ingest import ingest_router
 from src.services.api.routes.meta import meta_router
 from src.services.api.routes.model import model_router
@@ -202,6 +203,7 @@ app.add_middleware(
 )
 app.add_middleware(TraceMiddleware, service_name="brainapi-api")
 
+app.include_router(auth_router)
 app.include_router(ingest_router)
 app.include_router(retrieve_router)
 app.include_router(meta_router)

@@ -1,30 +1,28 @@
 export interface AuthSession {
   apiBaseUrl: string;
-  pat: string;
-  brainId: string;
-  isSystemPat?: boolean;
+  brainId: string | null;
+  isSystemPat: boolean;
+  csrfToken?: string;
 }
 
-const STORAGE_KEY = "brainapi-console-session";
+const STORAGE_KEY = "brainapi-console-preferences";
+// Remove old credential-bearing storage on upgrade, without reading its value.
+sessionStorage.removeItem("brainapi-console-session");
+localStorage.removeItem("brainapi-console-session");
 
 export function loadSession(): AuthSession | null {
-  const raw = sessionStorage.getItem(STORAGE_KEY);
-  if (!raw) return null;
   try {
-    return JSON.parse(raw) as AuthSession;
-  } catch {
-    return null;
-  }
+    const preferences = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
+    return preferences ? { apiBaseUrl: preferences.apiBaseUrl, brainId: null, isSystemPat: false } : null;
+  } catch { return null; }
 }
 
 export function saveSession(session: AuthSession): void {
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ apiBaseUrl: session.apiBaseUrl }));
 }
 
 export function clearSession(): void {
-  sessionStorage.removeItem(STORAGE_KEY);
+  sessionStorage.removeItem("brainapi-console-session");
 }
 
-export function normalizeBaseUrl(url: string): string {
-  return url.replace(/\/+$/, "");
-}
+export function normalizeBaseUrl(url: string): string { return url.replace(/\/+$/, ""); }

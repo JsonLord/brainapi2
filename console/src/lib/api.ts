@@ -1,4 +1,4 @@
-import { clearSession, loadSession, normalizeBaseUrl, type AuthSession } from "./auth";
+import { clearSession, loadSession, saveSession, normalizeBaseUrl, type AuthSession } from "./auth";
 
 export class ApiError extends Error {
   status: number;
@@ -12,7 +12,6 @@ export class ApiError extends Error {
 export interface BrainRecord {
   id?: string;
   name_key: string;
-  pat?: string;
 }
 
 export interface ApiFetchOptions {
@@ -42,7 +41,7 @@ export interface UpdateWorkspaceInput {
   archived?: boolean;
 }
 
-let session: AuthSession | null = loadSession();
+let session: AuthSession | null = null;
 
 export function getSession(): AuthSession | null {
   return session;
@@ -52,56 +51,11 @@ export function setSession(next: AuthSession | null): void {
   session = next;
 }
 
-function authHeaders(pat: string, brainId?: string, path?: string): Headers {
+function authHeaders(brainId?: string | null, path?: string): Headers {
   const headers = new Headers();
-  headers.set("BrainPAT", pat);
-  headers.set("Authorization", `Bearer ${pat}`);
-  if (brainId && path && !path.startsWith("/system")) {
-    headers.set("X-Brain-ID", brainId);
-  }
+  if (session?.csrfToken) headers.set("X-CSRF-Token", session.csrfToken);
+  if (brainId && path && !path.startsWith("/system")) headers.set("X-Brain-ID", brainId);
   return headers;
-}
-
-function normalizeBrains(data: unknown): BrainRecord[] {
-  if (Array.isArray(data)) {
-    return data.filter(
-      (item): item is BrainRecord =>
-        typeof item === "object" &&
-        item !== null &&
-        typeof (item as BrainRecord).name_key === "string",
-    );
-  }
-  if (typeof data === "object" && data !== null && "brains" in data) {
-    return normalizeBrains((data as { brains: unknown }).brains);
-  }
-  return [];
-}
-
-export async function probeSystemPat(
-  pat: string,
-  apiBaseUrl: string,
-): Promise<boolean> {
-  const token = pat.trim();
-  const url = `${normalizeBaseUrl(apiBaseUrl)}/system/brains-list`;
-  const response = await fetch(url, {
-    headers: authHeaders(token),
-  });
-  return response.ok;
-}
-
-export async function fetchBrainsList(
-  s: AuthSession = session!,
-): Promise<BrainRecord[]> {
-  const pat = s.pat.trim();
-  const url = `${normalizeBaseUrl(s.apiBaseUrl)}/system/brains-list`;
-  const response = await fetch(url, {
-    headers: authHeaders(pat),
-  });
-  if (!response.ok) {
-    throw new ApiError(response.status, `Failed to load brains (${response.status})`);
-  }
-  const data = await response.json();
-  return normalizeBrains(data);
 }
 
 export async function apiFetch<T>(
@@ -114,7 +68,7 @@ export async function apiFetch<T>(
     throw new ApiError(401, "Not authenticated");
   }
 
-  const headers = authHeaders(session.pat, overrideBrainId ?? session.brainId, path);
+  const headers = authHeaders(overrideBrainId ?? session.brainId, path);
   for (const [key, value] of new Headers(options.headers).entries()) {
     headers.set(key, value);
   }
@@ -123,7 +77,7 @@ export async function apiFetch<T>(
   }
 
   const url = `${normalizeBaseUrl(session.apiBaseUrl)}${path}`;
-  const response = await fetch(url, { ...options, headers });
+  const response = await fetch(url, { ...options, headers, credentials: "include" });
 
   if (response.status === 401 && fetchOptions.logoutOn401 !== false) {
     clearSession();
@@ -194,52 +148,38 @@ export function updateWorkspace(
   );
 }
 
-export interface LoginInfo {
-  is_system_pat: boolean;
-  brain_id: string;
+interface SessionIdentity {
+  is_system: boolean;
+  brain_id: string | null;
+  csrf_token?: string;
 }
 
-export async function resolveLoginInfo(
-  pat: string,
-  apiBaseUrl: string,
-): Promise<LoginInfo> {
-  const token = pat.trim();
-  const url = `${normalizeBaseUrl(apiBaseUrl)}/meta/login-info`;
-  const response = await fetch(url, {
-    headers: authHeaders(token),
+export async function connectSession(apiBaseUrl: string, token: string): Promise<AuthSession> {
+  const base = normalizeBaseUrl(apiBaseUrl);
+  const response = await fetch(`${base}/auth/session`, {
+    method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
   });
-  if (!response.ok) {
-    throw new ApiError(response.status, "Invalid BrainPAT");
-  }
-  return (await response.json()) as LoginInfo;
+  if (!response.ok) throw new ApiError(response.status, "Access token rejected");
+  const identity: SessionIdentity = await response.json();
+  session = { apiBaseUrl: base, brainId: identity.brain_id, isSystemPat: identity.is_system, csrfToken: identity.csrf_token };
+  // The credential has served its purpose; all subsequent calls use the cookie.
+  return session;
 }
 
-export async function connectSession(
-  apiBaseUrl: string,
-  pat: string,
-): Promise<AuthSession> {
-  const loginInfo = await resolveLoginInfo(pat, apiBaseUrl);
-  const next: AuthSession = {
-    apiBaseUrl: normalizeBaseUrl(apiBaseUrl),
-    pat: pat.trim(),
-    brainId: loginInfo.brain_id,
-    isSystemPat: loginInfo.is_system_pat,
-  };
-  session = next;
-  await apiFetch<string[]>("/meta/entity-labels");
-  return next;
+export async function restoreSession(): Promise<AuthSession | null> {
+  const base = loadSession()?.apiBaseUrl ?? window.location.origin;
+  const response = await fetch(`${normalizeBaseUrl(base)}/auth/me`, { credentials: "include" });
+  if (!response.ok) { session = null; return null; }
+  const identity: SessionIdentity = await response.json();
+  session = { apiBaseUrl: base, brainId: identity.brain_id, isSystemPat: identity.is_system, csrfToken: identity.csrf_token };
+  saveSession(session);
+  return session;
 }
 
-export async function validateSession(s: AuthSession): Promise<boolean> {
-  session = s;
-  try {
-    await apiFetch<string[]>("/meta/entity-labels");
-    return true;
-  } catch {
-    return false;
-  } finally {
-    session = loadSession() ?? s;
-  }
+export async function logoutSession(): Promise<void> {
+  try { await apiFetch("/auth/logout", { method: "POST" }); }
+  finally { clearSession(); session = null; }
 }
 
 export function mergeBrainOptions(

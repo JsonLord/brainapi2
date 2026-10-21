@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { getSession } from "./lib/api";
+import { getSession, restoreSession } from "./lib/api";
 import Layout from "./components/Layout";
 import LoginPage from "./pages/LoginPage";
 import OverviewPage from "./pages/OverviewPage";
@@ -15,6 +15,14 @@ import { WorkspaceProvider, useWorkspace } from "./workspaces/WorkspaceProvider"
 import { legacySection, workspacePath } from "./workspaces/workspaceRoutes";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
+  const [loading, setLoading] = useState(!getSession());
+  useEffect(() => {
+    if (getSession()) { setLoading(false); return; }
+    let mounted = true;
+    restoreSession().catch(() => null).finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
+  }, []);
+  if (loading) return <div>Checking session…</div>;
   return getSession() ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
@@ -38,6 +46,7 @@ function LegacyRedirect() {
     const selected = workspaces.find((item) => item.brain_id === session?.brainId) ?? workspaces[0];
     navigate(workspacePath(selected.slug, legacySection(location.pathname)), { replace: true });
   }, [loading, location.pathname, navigate, session?.brainId, workspaces]);
+  if (!loading && !workspaces.length) return <Layout />;
   return <div className="grid min-h-64 place-items-center">Selecting workspace…</div>;
 }
 

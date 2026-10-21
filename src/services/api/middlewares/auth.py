@@ -1,5 +1,7 @@
 """All HTTP authentication delegates to the shared identity service."""
 
+import secrets
+from src.services.console_sessions import SESSION_COOKIE, get_console_sessions
 from starlette.middleware.base import BaseHTTPMiddleware
 from src.services.api.console_static import is_console_path
 from src.services.api.errors import error_response
@@ -20,7 +22,16 @@ class BrainPATMiddleware(BaseHTTPMiddleware):
         service = get_auth_service(data_adapter)
         try:
             token = bearer_token(request.headers)
-            principal = service.authenticate_token(token)
+            if token:
+                principal = service.authenticate_token(token)
+            else:
+                principal, csrf = get_console_sessions().resolve(request.cookies.get(SESSION_COOKIE), service)
+                request.state.csrf_token = csrf
+                if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                    if not secrets.compare_digest(request.headers.get("X-CSRF-Token", ""), csrf):
+                        raise AuthError(403, "CSRF_INVALID")
+                    from src.services.api.routes.auth import check_origin
+                    check_origin(request)
             request.state.principal = principal
             request.state.is_system_pat = principal.is_system
             if path.startswith("/system"):

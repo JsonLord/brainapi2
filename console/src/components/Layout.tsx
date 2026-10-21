@@ -24,8 +24,7 @@ import {
   SkipLink,
   StatusIndicator,
 } from "lumen-ui-kit";
-import { clearSession } from "../lib/auth";
-import { setSession } from "../lib/api";
+import { logoutSession } from "../lib/api";
 import { useWorkspace } from "../workspaces/WorkspaceProvider";
 import { workspacePath, workspaceSection } from "../workspaces/workspaceRoutes";
 import CreateWorkspaceDialog from "./CreateWorkspaceDialog";
@@ -49,10 +48,9 @@ export default function Layout() {
   const section = workspaceSection(location.pathname);
   const visible = workspaces.filter((workspace) => !workspace.archived);
 
-  function logout() {
-    clearSession();
-    setSession(null);
-    navigate("/login");
+  async function logout() {
+    try { await logoutSession(); }
+    finally { navigate("/login"); }
   }
 
   const navigation = activeWorkspace ? (

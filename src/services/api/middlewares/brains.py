@@ -51,6 +51,9 @@ class BrainMiddleware(BaseHTTPMiddleware):
         "/api-docs",
         "/openapi.json",
         "/meta/login-info",
+        "/auth/session",
+        "/auth/me",
+        "/auth/logout",
         "/favicon.ico",
     }
 
@@ -66,7 +69,7 @@ class BrainMiddleware(BaseHTTPMiddleware):
 
         brainpat = request.headers.get("BrainPAT")
         authorization = request.headers.get("Authorization", "")
-        if not brainpat and not authorization.lower().startswith("bearer "):
+        if not brainpat and not authorization.lower().startswith("bearer ") and not request.cookies.get("__Host-brainapi-session"):
             # Authentication middleware owns the missing-credential response. Avoid
             # touching a backing store before it can return a structured 401.
             return await call_next(request)

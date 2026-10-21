@@ -18,11 +18,7 @@ from src.services.kg_agent.main import graph_adapter
 
 
 async def get_login_info(request: Request):
-    from src.services.auth import get_auth_service, bearer_token, AuthError
-    try:
-        principal = get_auth_service(data_adapter).authenticate_token(bearer_token(request.headers))
-    except AuthError as error:
-        raise HTTPException(status_code=error.status, detail=error.code) from None
+    principal = request.state.principal
     return {"is_system_pat": principal.is_system, "brain_id": principal.brain_id}
 
 
