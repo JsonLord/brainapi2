@@ -523,8 +523,10 @@ class Config:
         Raises:
             ValueError: If `BRAINPAT_TOKEN` is not set in the environment.
         """
-        self.brainpat_token = os.getenv("BRAINPAT_TOKEN", "brainpat_default_token")
-        self.system_pat = os.getenv("SYSTEM_PAT", "brainpat_default_token")
+        from src.services.auth_config import resolve_system_pat
+        self.system_pat = resolve_system_pat()
+        # Deprecated alias: one resolved value, never a second administrator.
+        self.brainpat_token = self.system_pat
 
         self.models_mode = os.getenv("MODELS_MODE", "local")
         if self.models_mode not in _MODES:

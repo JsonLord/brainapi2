@@ -18,29 +18,12 @@ from src.services.kg_agent.main import graph_adapter
 
 
 async def get_login_info(request: Request):
-    brainpat = request.headers.get("BrainPAT")
-    if not brainpat:
-        auth = request.headers.get("Authorization")
-        if auth:
-            brainpat = auth.split(" ")[-1].rstrip()
-    if not brainpat:
-        raise HTTPException(status_code=401, detail="Invalid or missing BrainPAT header")
-
-    system_pat = os.getenv("SYSTEM_PAT", "brainpat_default_token")
-    if brainpat == system_pat:
-        return {"is_system_pat": True, "brain_id": "default"}
-
+    from src.services.auth import get_auth_service, bearer_token, AuthError
     try:
-        brain = await asyncio.to_thread(data_adapter.get_brain_by_pat, brainpat)
-    except Exception:
-        brain = None
-
-    if not brain:
-        if brainpat == system_pat:
-            return {"is_system_pat": True, "brain_id": "default"}
-        raise HTTPException(status_code=401, detail="Invalid or missing BrainPAT header")
-
-    return {"is_system_pat": False, "brain_id": brain.name_key}
+        principal = get_auth_service(data_adapter).authenticate_token(bearer_token(request.headers))
+    except AuthError as error:
+        raise HTTPException(status_code=error.status, detail=error.code) from None
+    return {"is_system_pat": principal.is_system, "brain_id": principal.brain_id}
 
 
 async def get_entities_labels(brain_id: str):

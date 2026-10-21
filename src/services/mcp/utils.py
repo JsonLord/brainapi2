@@ -23,20 +23,15 @@ def guard_brainpat(pat: str = None, target_brain: str = None) -> bool | str:
     If the BrainPAT is not matching any brain, it will try to match with the systempat,
     if the systempat is not matching, it will raise an auth error.
     """
-    if pat and config.brainpat_token and secrets.compare_digest(
-        pat, config.brainpat_token
-    ):
+    from src.services.auth import get_auth_service, AuthError
+    service = get_auth_service(data_adapter)
+    try:
+        principal = service.authenticate_token(pat)
         if target_brain:
             target_brain = validate_brain_id(target_brain)
+            service.authorize_workspace(principal, target_brain)
             if data_adapter.get_brain(target_brain) is None:
                 raise BrainNotFoundError("Brain not found")
-        return True
-
-    brains = data_adapter.get_brains_list()
-    for brain in brains:
-        if pat and brain.pat and secrets.compare_digest(brain.pat, pat):
-            if target_brain and brain.name_key != target_brain:
-                return False
-            return brain.name_key
-
-    return False
+        return True if principal.is_system else principal.brain_id
+    except AuthError:
+        return False

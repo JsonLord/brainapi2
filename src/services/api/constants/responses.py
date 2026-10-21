@@ -18,7 +18,7 @@ class IngestionAcceptedResponse(BaseModel):
 
 class LoginInfoResponse(BaseModel):
     is_system_pat: bool
-    brain_id: str
+    brain_id: str | None
 
 
 class BrainLifecycleResponse(BaseModel):
