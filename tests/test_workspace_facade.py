@@ -88,7 +88,6 @@ def facade_client(monkeypatch):
     monkeypatch.setenv("BRAINPAT_TOKEN", "system-secret")
     monkeypatch.setattr(brains, "data_adapter", data)
     monkeypatch.setattr(auth, "data_adapter", data)
-    monkeypatch.setattr(auth, "cache_adapter", cache)
     monkeypatch.setattr(workspace_api, "data_adapter", data)
     monkeypatch.setattr(tasks, "cache_adapter", cache)
 

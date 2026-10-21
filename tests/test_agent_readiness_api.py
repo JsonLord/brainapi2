@@ -166,7 +166,9 @@ class PublicApiTests(unittest.TestCase):
     def test_health_is_typed_and_public(self):
         response = TestClient(_public_app()).get("/health")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "ok")
+        self.assertEqual(response.json()["status"], "degraded")
+        self.assertEqual(response.json()["persistence"]["mode"], "ephemeral")
+        self.assertFalse(response.json()["persistence"]["production_ready"])
         self.assertEqual(response.json()["service"], "brainapi")
         self.assertTrue(response.json()["version"])
 

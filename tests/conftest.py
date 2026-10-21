@@ -71,3 +71,16 @@ def _restore_retrieval_globals_after_test():
         module._retrieve_passages = passage_retriever
     if extractor is not None and extract_elements is not None:
         extractor.extract_elements = extract_elements
+
+@pytest.fixture(autouse=True)
+def _isolate_explicit_token_registry(request, monkeypatch):
+    """Unit tests must opt into credential persistence rather than contacting PG.
+
+    HTTP contract tests inject their own complete repository. Real integration
+    gates run inside the production image with PostgreSQL and Redis.
+    """
+    if request.node.get_closest_marker('integration'):
+        return
+    from src.services.credentials import token_repository
+    monkeypatch.setattr(token_repository, 'find_by_hash', lambda digest: None)
+    monkeypatch.setattr(token_repository, 'get', lambda token_id: None)

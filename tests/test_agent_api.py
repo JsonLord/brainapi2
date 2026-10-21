@@ -18,7 +18,6 @@ def agent_client(monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://brain.example")
     monkeypatch.setattr(brains, "data_adapter", data)
     monkeypatch.setattr(auth, "data_adapter", data)
-    monkeypatch.setattr(auth, "cache_adapter", cache)
     monkeypatch.setattr(agent, "data_adapter", data)
 
     calls = []

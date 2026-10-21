@@ -376,7 +376,7 @@ class GetContextStageCoverageTests(unittest.IsolatedAsyncioTestCase):
         from src.services.api.controllers import retrieve as retrieve_mod
 
         tracer.queue.drain()
-        with _stubbed_adapters(retrieve_mod, _facts(1)):
+        with patch.object(tracer, "mode", "queue"), _stubbed_adapters(retrieve_mod, _facts(1)):
             await retrieve_mod.get_context(
                 GetContextRequestBody(
                     text="Alice", brain_id="brain-a", profile_stages=True

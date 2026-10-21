@@ -66,7 +66,6 @@ def test_workspace_plugin_route_receives_authoritative_brain(monkeypatch):
     monkeypatch.setenv("BRAINPAT_TOKEN", "system-secret")
     monkeypatch.setattr(brains, "data_adapter", data)
     monkeypatch.setattr(auth, "data_adapter", data)
-    monkeypatch.setattr(auth, "cache_adapter", cache)
     app.add_middleware(BrainPATMiddleware)
     app.add_middleware(BrainMiddleware)
     client = TestClient(app)

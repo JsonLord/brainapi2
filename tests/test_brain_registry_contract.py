@@ -165,7 +165,8 @@ def test_duplicate_create_is_safe_conflict(api):
     response = client.post('/system/brains', headers=headers, json={'brain_id': 'alpha'})
     assert response.status_code == 409
     assert response.json()['error']['code'] == 'BRAIN_ALREADY_EXISTS'
-    assert registry.rows['alpha'].pat not in response.text
+    assert registry.rows['alpha'].pat is None
+    assert 'pat' not in response.json()
     assert registry.snapshot() == before
 
 
@@ -249,7 +250,8 @@ def test_mcp_system_pat_does_not_authorize_unknown_storage(monkeypatch):
     from src.services.mcp import utils
     registry = Registry()
     monkeypatch.setattr(utils, 'data_adapter', registry)
-    monkeypatch.setattr(utils.config, 'brainpat_token', 'system-pat')
+    monkeypatch.setenv('SYSTEM_PAT', 'system-pat')
+    monkeypatch.delenv('BRAINPAT_TOKEN', raising=False)
     before = registry.snapshot()
     with pytest.raises(BrainNotFoundError):
         utils.guard_brainpat('system-pat', 'unknown')
@@ -332,7 +334,7 @@ def test_demo_seed_explicitly_provisions_a_missing_brain(monkeypatch):
                             response(404, {'error': {'code': 'BRAIN_NOT_FOUND'}}),
                             response(200, {'status': 'completed'})])
     post = Mock(side_effect=[response(200, {'name_key': 'seed-demo'}),
-                            response(200, {'task_id': 'seed-task'})])
+                            response(202, {'task_id': 'seed-task'})])
     monkeypatch.setattr(seed_public_demo.requests, 'get', get)
     monkeypatch.setattr(seed_public_demo.requests, 'post', post)
     assert seed_public_demo.main() == 0

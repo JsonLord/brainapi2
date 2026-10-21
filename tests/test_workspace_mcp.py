@@ -98,6 +98,8 @@ def test_workspace_mcp_transport_resolves_path_and_enforces_pat(monkeypatch):
     from src.services.mcp import app as mcp_app
     from tests.test_workspace_facade import FacadeData
 
+    monkeypatch.setenv("SYSTEM_PAT", "system-secret")
+    monkeypatch.delenv("BRAINPAT_TOKEN", raising=False)
     data = FacadeData()
     monkeypatch.setattr(mcp_app, "data_adapter", data)
 
@@ -110,6 +112,10 @@ def test_workspace_mcp_transport_resolves_path_and_enforces_pat(monkeypatch):
     async def invoke(path, pat):
         messages = []
         middleware = mcp_app.AuthContextMiddleware(downstream)
+        async def send(message):
+            messages.append(message)
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
         await middleware(
             {
                 "type": "http",
@@ -117,18 +123,11 @@ def test_workspace_mcp_transport_resolves_path_and_enforces_pat(monkeypatch):
                 "path": path,
                 "headers": [(b"authorization", f"Bearer {pat}".encode())],
             },
-            lambda: None,
-            messages.append,
+            receive,
+            send,
         )
         return messages
 
-    monkeypatch.setattr(
-        mcp_app,
-        "guard_brainpat",
-        lambda pat: True
-        if pat == "system-secret"
-        else ("alpha" if pat == "alpha-secret" else False),
-    )
     allowed = asyncio.run(invoke("/brains/alpha/mcp", "alpha-secret"))
     assert allowed[0]["status"] == 200
     assert allowed[1]["body"] == b"/workspace/mcp:alpha"

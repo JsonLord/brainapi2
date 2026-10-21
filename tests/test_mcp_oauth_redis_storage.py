@@ -1,6 +1,10 @@
 import asyncio
 import os
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
+from src.services.auth import AuthService
+from src.constants.data import Brain
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import AnyUrl
@@ -74,6 +78,15 @@ def make_provider(redis_client, pat_verifier=lambda _pat: False):
 
 
 class BrainapiMcpOAuthProviderRedisTests(unittest.TestCase):
+    def setUp(self):
+        brain = Brain(id="legacy-brain-id", name_key="alpha", pat="brain-pat")
+        data = SimpleNamespace(get_brain=lambda name: brain if name == "alpha" else None,
+            get_brain_by_pat=lambda value: brain if value == "brain-pat" else None)
+        service = AuthService(data)
+        patcher = patch("src.services.mcp.oauth_provider.get_auth_service", return_value=service)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_authorization_code_exchange_survives_provider_recreation(self):
         redis_client = FakeRedis()
         issuer = make_provider(redis_client)
@@ -98,7 +111,8 @@ class BrainapiMcpOAuthProviderRedisTests(unittest.TestCase):
         loaded_code = asyncio.run(recreated.load_authorization_code(loaded_client, code))
         token = asyncio.run(recreated.exchange_authorization_code(loaded_client, loaded_code))
 
-        self.assertEqual(recreated.get_pat_for_access_token(token.access_token), "brain-pat")
+        self.assertEqual(recreated.get_pat_for_access_token(token.access_token).brain_id, "alpha")
+        self.assertNotIn("brain-pat", str(redis_client.values))
         self.assertIsNone(asyncio.run(recreated.load_authorization_code(loaded_client, code)))
         self.assertIsNotNone(asyncio.run(recreated.load_access_token(token.access_token)))
 
@@ -185,8 +199,8 @@ class BrainapiMcpOAuthProviderRedisTests(unittest.TestCase):
 
         self.assertIsNone(asyncio.run(recreated.load_access_token(first_token.access_token)))
         self.assertEqual(
-            recreated.get_pat_for_access_token(second_token.access_token),
-            "brain-pat",
+            recreated.get_pat_for_access_token(second_token.access_token).brain_id,
+            "alpha",
         )
 
 

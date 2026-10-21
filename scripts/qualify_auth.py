@@ -1,6 +1,8 @@
 """Offline production-image auth gate; only unique disposable resources are mutated."""
 import json
 import os
+import secrets
+import subprocess
 from pathlib import Path
 import sys
 import time
@@ -65,6 +67,30 @@ def qualify():
                 cursor.execute('SELECT pat,document FROM data_brains WHERE name_key=ANY(%s)',(names,))
                 check(all(not pat and 'pat' not in doc for pat,doc in cursor.fetchall()),'Resource identity persisted a credential')
             results['hash_at_rest_metadata_only']='passed'
+            # Emulate an existing legacy row only in our disposable brain. Then
+            # exercise the shipped atomic migration and prove the secret is gone.
+            legacy_secret=secrets.token_urlsafe(36)
+            with borrow(get_system_pool()) as conn,conn.cursor() as cursor:
+                cursor.execute("UPDATE data_brains SET pat=%s,document=jsonb_set(document,'{pat}',to_jsonb(%s::text)) WHERE name_key=%s",(legacy_secret,legacy_secret,names[0]))
+                conn.commit()
+            legacy_headers={'Authorization':'Bearer '+legacy_secret}
+            check(api.get(own+'/agent/capabilities',headers=legacy_headers).status_code==200,'Legacy scoped credential rejected')
+            check(api.get(other+'/agent/capabilities',headers=legacy_headers).status_code==403,'Legacy credential escaped scope')
+            migration=subprocess.run([sys.executable,'-m','scripts.migrate_legacy_credentials','--migrate',names[0]],capture_output=True,text=True)
+            check(migration.returncode==0,'Atomic legacy migration failed')
+            check(legacy_secret not in migration.stdout+ migration.stderr,'Migration printed a credential')
+            check(api.get(own+'/agent/capabilities',headers=legacy_headers).status_code==200,'Migrated legacy credential rejected')
+            with borrow(get_system_pool()) as conn,conn.cursor() as cursor:
+                cursor.execute('SELECT pat,document FROM data_brains WHERE name_key=%s',(names[0],))
+                pat,document=cursor.fetchone()
+                check(not pat and 'pat' not in document,'Migration retained plaintext')
+            for row in api.get('/system/access-tokens',headers=admin).json()['tokens']:
+                if row['brain_id']==names[0] and row['legacy']:
+                    issued.append(row['id'])
+                    check(api.delete('/system/access-tokens/'+row['id'],headers=admin).status_code==200,'Legacy rotation revocation failed')
+            check(api.get(own+'/agent/capabilities',headers=legacy_headers).status_code==401,'Revoked migrated credential accepted')
+            results['legacy_scope_atomic_migration_rotation']='passed'
+
             for credential,is_system in ((admin,True),(headers,False)):
                 login=api.post('/auth/session',json={'token':credential['Authorization'][7:]})
                 check(login.status_code==200,'Console session creation failed')
