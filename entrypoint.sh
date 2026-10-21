@@ -55,6 +55,7 @@ if [ "$PERSISTENCE_MODE" = "ephemeral" ]; then
 fi
 mkdir -p "$PERSISTENT_ROOT/postgres" "$PERSISTENT_ROOT/redis" /var/lib/postgresql
 chmod 0750 "$PERSISTENT_ROOT" "$PERSISTENT_ROOT/redis"
+chown root:postgres "$PERSISTENT_ROOT"
 chmod 0700 "$PERSISTENT_ROOT/postgres"
 chown -R postgres "$PERSISTENT_ROOT/postgres" /var/lib/postgresql
 
