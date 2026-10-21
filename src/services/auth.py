@@ -56,7 +56,9 @@ class AuthService:
         if token.startswith("bpat_") and self.token_store is not None:
             row = self.token_store.find_by_hash(token_digest(token))
             if row:
-                return self._token_principal(row)
+                principal = self._token_principal(row)
+                self.token_store.touch(row["id"])
+                return principal
             raise AuthError()
         brain = self.data.get_brain_by_pat(token)
         if brain and brain.pat and secrets.compare_digest(token, brain.pat):
@@ -71,7 +73,8 @@ class AuthService:
     def _token_principal(self, row):
         if row["revoked_at"] or (row["expires_at"] and row["expires_at"].timestamp() <= time.time()):
             raise AuthError()
-        if self.data.get_brain(row["brain_id"]) is None:
+        brain = self.data.get_brain(row["brain_id"])
+        if brain is None or brain.id != row["brain_resource_id"]:
             raise AuthError()
         return Principal("access_token", row["id"], row["brain_id"],
                          frozenset(row["permissions"]), token_id=row["id"])
@@ -90,7 +93,8 @@ def get_auth_service(data=None):
     if data is None:
         from src.services.data.main import data_adapter
         data = data_adapter
-    return AuthService(data)
+    from src.services.credentials import token_repository
+    return AuthService(data, token_repository)
 
 
 def bearer_token(headers):

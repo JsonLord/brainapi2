@@ -1,3 +1,4 @@
+import AccessTokens from "../components/AccessTokens";
 import { useEffect, useState } from "react";
 import { Button, Field, FieldLabel, StatusIndicator } from "lumen-ui-kit";
 import { PageFrame } from "../components/Workbench";
@@ -22,6 +23,7 @@ export default function WorkspaceSettingsPage() {
     {[['Slug', activeWorkspace.slug], ['Brain ID', activeWorkspace.brain_id], ['Native API', activeWorkspace.api_base_url], ['Native OpenAPI', `${activeWorkspace.api_base_url}/openapi.json`], ['Agent API', activeWorkspace.api_base_url.replace(/\/api$/, '/agent')], ['Agent OpenAPI', activeWorkspace.api_base_url.replace(/\/api$/, '/agent/openapi.json')], ['MCP endpoint', activeWorkspace.api_base_url.replace(/\/api$/, '/mcp')], ['Console URL', activeWorkspace.console_url]].map(([label, value]) => <div key={label}><div className="text-sm font-medium">{label}</div><div className="flex gap-2"><code className="min-w-0 flex-1 overflow-x-auto rounded bg-lumen-surface p-2">{value}</code><Button type="button" size="small" variant="secondary" onClick={() => void navigator.clipboard.writeText(value)}>Copy</Button></div></div>)}
     <div><span className="mr-2 text-sm font-medium">Status</span><StatusIndicator status={activeWorkspace.archived ? "warning" : "success"}>{activeWorkspace.archived ? "Archived" : "Active"}</StatusIndicator></div>
     {canManageWorkspaces ? <div className="flex gap-2"><Button onClick={() => void save()}>Save changes</Button><Button variant="secondary" onClick={() => void updateWorkspace({ archived: !activeWorkspace.archived })}>{activeWorkspace.archived ? "Restore" : "Archive"}</Button></div> : null}
+    {canManageWorkspaces ? <AccessTokens key={activeWorkspace.brain_id} brainId={activeWorkspace.brain_id} /> : null}
     {message ? <p role="status">{message}</p> : null}
   </div></PageFrame>;
 }

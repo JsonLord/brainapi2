@@ -548,7 +548,7 @@ class PostgreSQLDataClient(DataClient):
                         (
                             brain.id,
                             brain.name_key,
-                            brain.pat,
+                            brain.pat or "",
                             json.dumps(document, default=str),
                         ),
                     )
