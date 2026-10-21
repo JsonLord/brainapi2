@@ -1,890 +1,854 @@
-# BrainAPI2 Multi-Brain Workspaces Specification
-
-**Repository:** `JsonLord/brainapi2`  
-**Target:** extend the existing BrainAPI2 multi-`brain_id` foundation into first-class, independently addressable **brain workspaces** with a tabbed Console and a stable hosted API URL for each workspace.
-
+BrainAPI Unified Authentication, Credential Registry, Console Login & Runtime Hardening
+Status: Implementation specification  
+Repository: `JsonLord/brainapi2`  
+Target branch / PR: PR #8, branch `jules-4649944271521841670-0d5c9ccf`  
+Observed PR head: `784fecf82694cf5646d247836eb3f173b4a05941`  
+Base registry fix: `fix/authoritative-brain-registry` at `42cde77950db2e24a1b7acbc3477274bd9cad06a`  
+Date: 2026-10-21
 ---
-
-## 1. Objective
-
-Transform BrainAPI2 from a system where multiple brains technically exist but are primarily selected as session context into a system where each brain is presented and managed as a first-class **workspace**.
-
-A workspace must:
-
-1. map 1:1 to an existing BrainAPI `brain_id` / `name_key`;
-2. have display metadata and a stable slug;
-3. appear as a switchable tab in the Console;
-4. retain the current page when switching where possible;
-5. have its own stable, shareable API base URL on the same deployment;
-6. isolate all graph, observations, vector, task, ingestion, and retrieval operations to that workspace;
-7. continue to support the existing `X-Brain-ID` API behavior for backward compatibility;
-8. work on a single-host deployment, including Hugging Face Spaces or another reverse-proxied host, without requiring one process/container per brain.
-
-The desired mental model is:
-
+0. Executive decision
+BrainAPI must stop treating a Brain, an access credential, a browser login session, and an administrator credential as the same concept.
+Target model:
 ```text
-One BrainAPI deployment
-│
-├── Workspace: company
-│   ├── Console: /console/w/company/...
-│   └── API:     /brains/company/api/...
-│
-├── Workspace: aux-research
-│   ├── Console: /console/w/aux-research/...
-│   └── API:     /brains/aux-research/api/...
-│
-└── Workspace: agent-memory
-    ├── Console: /console/w/agent-memory/...
-    └── API:     /brains/agent-memory/api/...
+SYSTEM_PAT
+  └── one stable deployment-level administrator credential
+      ├── administer brains/workspaces
+      ├── create/revoke scoped access tokens
+      ├── access any workspace
+      └── qualify the service
+
+Brain / Workspace
+  └── durable resource identity
+      ├── no automatically generated credential
+      └── no credential stored as part of resource identity
+
+AccessToken
+  └── explicit named credential
+      ├── scoped to one brain/workspace
+      ├── explicit permissions
+      ├── hash at rest
+      ├── plaintext shown once on creation
+      └── revocable independently of the brain
+
+ConsoleSession
+  └── short-lived browser session
+      ├── created after an access token is verified
+      ├── opaque HttpOnly Secure cookie
+      ├── never persists SYSTEM_PAT or scoped token in browser storage
+      └── may have no selected workspace until the human chooses one
 ```
-
+This pass must also fix the runtime defects observed in live Hugging Face testing:
+split `SYSTEM_PAT` / `BRAINPAT_TOKEN` semantics;
+console rejects a valid system credential because login validation hits `/meta/entity-labels` against a fake `default` brain;
+every Brain automatically generates a fresh PAT;
+generated PATs can leak through SQL/error logs;
+invalid structured-ingest requests become HTTP 500 because validation errors contain a non-JSON-serializable `ValueError`;
+failed ingestion causes repeated `/tasks/None` polling;
+trace queues fill while probing unused Mongo/Neo4j/Milvus/RabbitMQ services;
+HF memory runs on ephemeral filesystem when `/data` is absent without a strong release gate;
+secondary hardening warnings: Celery as root, PostgreSQL `SQL_ASCII`/trust defaults, unresolved Pydantic warning.
+The registry-authority fixes from `42cde779...` and the qualified EmbeddingGemma 2 / 512d vector contract are invariants and must not regress.
 ---
-
-## 2. Existing repo behavior to preserve
-
-The implementation should build on the existing architecture rather than replace it.
-
-Observed current behavior in `main`:
-
-- The Console is a React application under `console/src`.
-- `console/src/App.tsx` defines routes for Overview, Graph, Data, Observations, Vectors, Tasks, and Ingest.
-- `console/src/lib/api.ts` already:
-  - stores the active `brainId` in the session;
-  - calls `/system/brains-list` for system-PAT sessions;
-  - sends `X-Brain-ID` for non-system API requests;
-  - supports an `overrideBrainId` argument;
-  - distinguishes system PAT from per-brain PAT.
-- `console/src/components/Layout.tsx` already contains a `BrainSwitcher` based on a `<Select>` and changes the session brain followed by `window.location.reload()`.
-- Existing ingestion/retrieval APIs already understand `brain_id` / brain scoping.
-
-Therefore this project is primarily a **workspace registry + routing + Console state/UX + path-scoped API facade** project. Do not fork or duplicate the core graph/retrieval engine for each workspace.
-
----
-
-## 3. Terminology
-
-### Brain
-The existing BrainAPI data isolation primitive identified by `brain_id` / `name_key`.
-
-### Workspace
-The user-facing and API-facing representation of one brain. It adds metadata, routing, discoverability, and a stable endpoint while using the existing brain as its storage/execution scope.
-
-### Workspace slug
-A URL-safe, immutable or carefully-renamable identifier used in Console and hosted API routes.
-
-Example: `aux-research`.
-
-### Active workspace
-The workspace currently rendered by a Console tab/session. It MUST NOT be a global server-side singleton.
-
----
-
-## 4. Core design decision
-
-### 4.1 Keep one BrainAPI process
-
-Do **not** launch one FastAPI process, database, worker, or port per workspace.
-
-All workspaces share the deployment and infrastructure. Existing `brain_id` filtering remains the isolation mechanism.
-
-### 4.2 Add path-scoped workspace URLs
-
-Each workspace gets a stable public base URL:
-
+1. Non-negotiable invariants
+1.1 Registry authority
+The persisted Brain registry is authoritative.
+An unknown brain read must return:
 ```text
-{PUBLIC_BASE_URL}/brains/{workspace_slug}/api
+404 BRAIN_NOT_FOUND
 ```
-
-Examples:
-
+and must not create:
+Brain rows;
+Workspace rows;
+PostgreSQL databases/schemas;
+vector indexes;
+graph state;
+Redis application state.
+This includes semantically read-only POSTs such as `/retrieve/search` and `/retrieve/context`, plus Agent API and MCP equivalents.
+1.2 Credentials are not resource identity
+Creating a Brain or Workspace MUST NOT implicitly create a credential.
+Deleting/archiving a resource MUST NOT rotate unrelated credentials.
+Rotating/revoking a credential MUST NOT change Brain or Workspace identity.
+1.3 One canonical administrator secret
+`SYSTEM_PAT` is the canonical deployment-level administrator secret.
+HTTP, MCP, console, qualification scripts and optional OAuth must all resolve system identity through the same auth service.
+1.4 No default administrator token
+Remove every usable fallback such as:
+```python
+os.getenv("SYSTEM_PAT", "brainpat_default_token")
+```
+Missing administrator credentials must fail closed in production.
+1.5 Plaintext-token rule
+Plaintext credentials may exist only:
+while being verified;
+while a newly created scoped token is returned once;
+as the injected `SYSTEM_PAT` secret.
+They must never be:
+stored in Brain rows;
+returned by Brain/workspace listing APIs;
+written to logs, traces, SQL errors or exceptions;
+stored in browser `localStorage`/`sessionStorage`;
+committed to repository files.
+---
+2. Current defects to replace
+At PR #8 head, system auth is split approximately as follows:
 ```text
-https://brain.example.com/brains/company/api
-https://brain.example.com/brains/aux-research/api
-https://brain.example.com/brains/agent-memory/api
+BrainPATMiddleware      -> SYSTEM_PAT
+/meta/login-info        -> SYSTEM_PAT
+console copy            -> SYSTEM_PAT
+Config.brainpat_token   -> BRAINPAT_TOKEN
+entrypoint bootstrap    -> BRAINPAT_TOKEN
+HF env example          -> BRAINPAT_TOKEN
+MCP legacy/system path  -> BRAINPAT_TOKEN
 ```
+This is invalid because it can create two administrator credentials.
+The console also currently treats system auth as:
+```json
+{"is_system_pat": true, "brain_id": "default"}
+```
+then calls `/meta/entity-labels` to validate login. With `DEFAULT_BRAIN_FALLBACK=false`, a valid system token may authenticate and still be rejected by the UI because no `default` Brain exists.
+The current `Brain` model also auto-generates `pat` with Python `random.choice`; this must be removed from new resource creation.
+---
+3. Central AuthService
+Create one authoritative auth service. Exact module layout may follow repo conventions, but all surfaces must delegate to it.
+Suggested conceptual API:
+```python
+class AuthService:
+    def authenticate_token(self, token: str) -> Principal: ...
+    def authorize_workspace(self, principal: Principal, brain_id: str, permission: str) -> None: ...
+    def create_access_token(self, ...) -> IssuedToken: ...
+    def revoke_access_token(self, token_id: str) -> None: ...
+    def list_access_tokens(self, ...) -> list[AccessTokenMetadata]: ...
+    def create_console_session(self, principal: Principal) -> ConsoleSession: ...
+    def resolve_console_session(self, cookie: str) -> Principal: ...
+    def revoke_console_session(self, cookie: str) -> None: ...
+```
+These must use it:
+`BrainPATMiddleware`;
+`/auth/*`;
+`/meta/login-info` compatibility route;
+workspace Agent API;
+workspace MCP;
+root/legacy MCP while retained;
+system/workspace admin routes;
+console;
+qualification scripts.
+After this refactor, route/middleware code must not perform independent system-token environment comparisons.
+---
+4. Canonical SYSTEM_PAT and compatibility migration
+Resolve secrets at startup as follows:
+```text
+SYSTEM_PAT set, BRAINPAT_TOKEN unset
+    -> use SYSTEM_PAT
 
-Calls below that base are routed to the existing BrainAPI handlers with the corresponding brain/workspace scope injected server-side.
+SYSTEM_PAT unset, BRAINPAT_TOKEN set
+    -> temporarily use BRAINPAT_TOKEN as legacy alias
+    -> emit one deprecation warning, never the value
 
+both set and identical
+    -> use SYSTEM_PAT
+
+both set and different
+    -> FAIL STARTUP with SYSTEM_PAT_CONFLICT
+
+neither set
+    -> production: FAIL STARTUP
+```
+There must never be two simultaneously valid system administrator tokens.
+Expose one resolved config field:
+```python
+config.system_pat
+```
+Any temporary `config.brainpat_token` compatibility property must resolve to the same canonical value and be marked deprecated.
+Update:
+`entrypoint.sh`;
+`deploy/env.hf.cpu.example`;
+`Agent.md`;
+console help copy;
+MCP code;
+qualification scripts.
+---
+5. Principal model
+Introduce an explicit principal.
 Example:
-
-```http
-POST /brains/aux-research/api/retrieve/context
+```python
+@dataclass(frozen=True)
+class Principal:
+    kind: Literal["system", "access_token", "console_session"]
+    subject_id: str
+    brain_id: str | None
+    permissions: frozenset[str]
+    token_id: str | None = None
 ```
-
-must behave like the existing:
-
-```http
-POST /retrieve/context
-X-Brain-ID: aux-research
-```
-
-The path-scoped form is the canonical hosted endpoint for integrations. The header-scoped legacy API remains supported.
-
-### 4.3 Never trust a conflicting brain header on a workspace URL
-
-For a request to:
-
+System principal:
 ```text
-/brains/alpha/api/...
+brain_id = None
+permissions includes system:admin
 ```
-
-`alpha` is authoritative.
-
-If the caller also supplies `X-Brain-ID: beta`, reject with `400` or `409`. Never silently route to `beta`.
-
+Scoped principal:
+```text
+brain_id = lifeos-projects
+permissions = explicit scoped permissions
+```
+A system principal MUST NOT be represented as `brain_id="default"`.
 ---
-
-## 5. Workspace data model
-
-Introduce a small persistent workspace registry. Reuse an existing metadata/database abstraction if the repo already has a suitable one; do not add a new database technology solely for this feature.
-
-Minimum model:
-
+6. Explicit scoped access-token registry
+6.1 Data model
+Persist explicit access tokens in the system PostgreSQL database.
+Minimum fields:
+```text
+id
+label
+brain_id
+token_prefix
+token_hash
+permissions
+created_at
+last_used_at
+expires_at
+revoked_at
+legacy
+created_by
+```
+Do not store plaintext.
+6.2 Token generation
+Generate with `secrets`, e.g.:
 ```python
-Workspace {
-    id: UUID | existing stable identifier
-    brain_id: str             # existing BrainAPI scope; unique
-    slug: str                 # URL-safe; unique
-    display_name: str
-    description: str | None
-    created_at: datetime
-    updated_at: datetime
-    archived: bool = False
-}
+plaintext = "bpat_" + secrets.token_urlsafe(32)
 ```
-
-Optional metadata, only if it fits current patterns cleanly:
-
-```python
-icon: str | None
-tags: list[str]
-metadata: dict
+Persist a cryptographic hash and a safe display prefix.
+6.3 Permission vocabulary
+Minimum target vocabulary:
+```text
+memory:read
+memory:write
+brain:read
+system:admin
 ```
-
-Do not store secrets in workspace metadata.
-
-### 5.1 Constraints
-
-- `brain_id` unique.
-- `slug` unique and normalized.
-- slug syntax: lowercase ASCII letters, digits, and `-` only.
-- reject reserved slugs such as `system`, `api`, `console`, `docs`, `openapi.json`, `health`, `default` only if they create an actual routing collision.
-- default maximum slug length: 63 unless existing project conventions dictate otherwise.
-
-### 5.2 Default migration
-
-Existing installations must continue working.
-
-On startup or through an idempotent migration/bootstrap:
-
-- enumerate existing brains using the canonical current source of truth;
-- ensure each has a workspace record;
-- preserve the existing `name_key` as `brain_id`;
-- generate a stable slug from it;
-- make `default` available as a workspace if the default brain exists.
-
-This migration MUST be idempotent.
-
----
-
-## 6. Workspace management API
-
-Prefer the repo's existing FastAPI/router conventions and auth dependencies.
-
-All workspace-management endpoints require a **system-level PAT** unless the current authorization model already provides a stronger equivalent.
-
-### 6.1 List workspaces
-
-```http
-GET /system/workspaces
-```
-
-Response:
-
-```json
-{
-  "workspaces": [
-    {
-      "id": "...",
-      "brain_id": "aux-research",
-      "slug": "aux-research",
-      "display_name": "Aux Research",
-      "description": null,
-      "archived": false,
-      "api_base_url": "https://host.example/brains/aux-research/api",
-      "console_url": "https://host.example/console/w/aux-research/"
-    }
-  ]
-}
-```
-
-### 6.2 Get workspace
-
-```http
-GET /system/workspaces/{slug}
-```
-
-### 6.3 Create workspace
-
-```http
+If granular route mapping is too large for the first pass, `brain:read` / `brain:write` may be used initially, but permission storage and centralized authorization must exist now.
+6.4 Resource creation no longer creates credentials
+These create resources only:
+```text
+POST /system/brains
 POST /system/workspaces
-Content-Type: application/json
-
-{
-  "slug": "aux-research",
-  "display_name": "Aux Research",
-  "description": "Customer and ethnographic research memory"
-}
 ```
-
-Creation must create or register the underlying BrainAPI brain using the existing canonical brain creation mechanism. Do not create a second parallel concept of a brain.
-
-If the repository already has a create-brain endpoint/service, call that service rather than duplicating its logic.
-
-### 6.4 Update workspace metadata
-
-```http
-PATCH /system/workspaces/{slug}
+They MUST NOT generate or return a PAT.
+6.5 Token-management endpoints
+System administrator only:
+```text
+GET    /system/access-tokens
+POST   /system/access-tokens
+DELETE /system/access-tokens/{token_id}
 ```
-
-Initially support:
-
-- `display_name`
-- `description`
-- `archived`
-
-Treat slug changes as a separate operation or leave them out of v1 to keep integration URLs stable.
-
-### 6.5 Delete/archive
-
-Prefer archive over destructive graph deletion.
-
-```http
-DELETE /system/workspaces/{slug}
-```
-
-should either:
-
-- archive the workspace only; or
-- require an explicit destructive mode already supported by BrainAPI.
-
-Do not accidentally delete graph data simply because a UI tab is removed.
-
-### 6.6 Endpoint discovery
-
-```http
-GET /system/workspaces/{slug}/endpoint
-```
-
-Response:
-
+Example create request:
 ```json
 {
-  "workspace": "aux-research",
-  "brain_id": "aux-research",
-  "api_base_url": "https://host.example/brains/aux-research/api",
-  "console_url": "https://host.example/console/w/aux-research/",
-  "auth": {
-    "accepted": ["Authorization: Bearer <PAT>", "BrainPAT: <PAT>"]
+  "brain_id": "lifeos-projects",
+  "label": "hermes-prod",
+  "permissions": ["memory:read", "memory:write"]
+}
+```
+Creation response may return the new plaintext token exactly once:
+```json
+{
+  "id": "...",
+  "label": "hermes-prod",
+  "brain_id": "lifeos-projects",
+  "permissions": ["memory:read", "memory:write"],
+  "token_prefix": "bpat_ab12...",
+  "token": "bpat_<plaintext-shown-once>"
+}
+```
+List endpoints NEVER return plaintext or token hash.
+---
+7. Legacy per-brain PAT migration
+Existing stored Brain PATs must remain temporarily usable so current agents are not locked out.
+During the compatibility window, `AuthService.authenticate_token()` may check:
+canonical system PAT;
+new access-token registry;
+legacy persisted Brain PAT.
+Legacy PAT rules:
+own Brain only;
+never system privileges;
+rate-limited deprecation warning without token value;
+internally identifiable as legacy;
+no new Brain receives an automatic legacy PAT.
+Provide a migration/rotation helper that reports Brain name and migration status without printing plaintext.
+Any token previously emitted in SQL/application logs must be considered exposed and rotated after the new registry is available.
+---
+8. Browser console authentication
+The console must stop keeping plaintext PATs in browser storage.
+8.1 Endpoints
+Add:
+```text
+POST /auth/session
+GET  /auth/me
+POST /auth/logout
+```
+`POST /auth/session` accepts a token over TLS, verifies it through `AuthService`, creates a random opaque server-side Redis session, and returns an HttpOnly cookie.
+Cookie requirements:
+```text
+HttpOnly
+Secure
+SameSite=Strict
+Path=/
+configurable TTL, default ~8h
+```
+Do not echo the submitted token.
+8.2 CSRF
+Cookie-authenticated unsafe browser requests must use a CSRF token associated with the server session and sent in `X-CSRF-Token`.
+Direct Bearer/BrainPAT agent requests do not use browser CSRF.
+8.3 `/auth/me`
+System response:
+```json
+{
+  "authenticated": true,
+  "kind": "system",
+  "is_system": true,
+  "brain_id": null,
+  "permissions": ["system:admin"]
+}
+```
+Scoped response:
+```json
+{
+  "authenticated": true,
+  "kind": "access_token",
+  "is_system": false,
+  "brain_id": "lifeos-projects",
+  "permissions": ["memory:read", "memory:write"]
+}
+```
+8.4 Console storage
+Remove token plaintext from `AuthSession` / `sessionStorage`.
+The console may store non-secret UI state such as API base URL and last workspace slug.
+8.5 Login UI
+Rename human-facing `BrainPAT` field to `Access token`.
+Explain two token classes:
+```text
+Administrator token
+    SYSTEM_PAT configured by deployment operator
+
+Workspace token
+    explicit named scoped token created for an integration/agent
+```
+Do not tell users that Brain creation returns a token.
+8.6 System login flow
+Correct flow:
+```text
+POST /auth/session
+GET  /auth/me              -> system, brain_id=null
+GET  /system/workspaces
+select valid workspace
+```
+Use last valid workspace if present; otherwise first active workspace; if none exist, show admin empty state.
+DO NOT call `/meta/entity-labels` to decide whether login succeeded.
+DO NOT invent a `default` Brain.
+8.7 Scoped login
+A scoped token login:
+resolves the token's Brain;
+discovers only authorized workspace(s);
+selects its workspace;
+hides system/workspace-admin controls.
+---
+9. Agent and MCP authentication
+New integrations should prefer:
+```http
+Authorization: Bearer <token>
+```
+Keep:
+```http
+BrainPAT: <token>
+```
+as compatibility transport.
+All validation delegates to `AuthService`.
+For `/brains/{workspace_slug}/...`:
+```text
+system principal              -> allowed
+matching scoped token         -> allowed according to permission
+valid different-brain token   -> 403 FORBIDDEN
+unknown/revoked token          -> 401 AUTH_INVALID
+```
+Workspace MCP must accept the SAME canonical system PAT as HTTP and console. It must not use independent `BRAINPAT_TOKEN` administrator semantics.
+Legacy root MCP may remain but must use the same service.
+---
+10. Compatibility `/meta/login-info`
+Keep temporarily for old clients as a thin view over `/auth/me`.
+System:
+```json
+{"is_system_pat": true, "brain_id": null}
+```
+Scoped:
+```json
+{"is_system_pat": false, "brain_id": "lifeos-projects"}
+```
+Mark deprecated. Never return `"default"` for system auth.
+---
+11. Structured-validation error serialization
+Current failure:
+```text
+RequestValidationError
+  -> exc.errors()
+  -> ctx.error contains ValueError
+  -> JSONResponse serialization fails
+  -> HTTP 500
+```
+Required behavior:
+```text
+invalid request
+-> HTTP 422
+-> JSON-safe VALIDATION_ERROR envelope
+```
+Sanitize error details using an appropriate FastAPI/Pydantic JSON encoder or a safe recursive encoder.
+Expected shape:
+```json
+{
+  "detail": [
+    {
+      "type": "value_error",
+      "loc": ["body", "data", 0],
+      "msg": "Value error, direct triples require subject, subj_event, and object",
+      "ctx": {"error": "direct triples require subject, subj_event, and object"}
+    }
+  ],
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed.",
+    "resolution": "Correct the fields listed in detail and retry.",
+    "request_id": "..."
   }
 }
 ```
-
-Do not return PAT values.
-
+Regression-test both root and workspace structured-ingest routes.
 ---
-
-## 7. Hosted per-workspace API facade
-
-Add a routing layer under:
-
+12. Stop `/tasks/None` polling
+Repository clients/console may poll task status only when:
 ```text
-/brains/{workspace_slug}/api
+HTTP == 202
+AND task_id is a non-empty string
 ```
-
-### 7.1 Required behavior
-
-The facade must make the existing public BrainAPI endpoints usable with no explicit `brain_id` selection from the caller.
-
-At minimum cover the currently public/workhorse endpoint families:
-
-```text
-/ingest/*
-/retrieve/*
-/meta/*                 # only brain-scoped meta calls; system endpoints stay system-scoped
-```
-
-and any other currently supported brain-scoped routes discovered during implementation.
-
-### 7.2 Preferred implementation
-
-Do not implement an HTTP loopback proxy from BrainAPI back into itself.
-
-Preferred order:
-
-1. refactor route logic into reusable services/dependencies if needed;
-2. mount/reuse routers with a workspace-scope dependency; or
-3. add middleware/route dependency that resolves `{workspace_slug}` to `brain_id` and provides the same request context consumed by current handlers.
-
-Avoid network proxying to `localhost` because it adds latency, streaming complexity, duplicated auth, and failure modes.
-
-### 7.3 Scope resolution
-
-Introduce one canonical resolver, conceptually:
-
-```python
-resolve_brain_scope(
-    authenticated_identity,
-    workspace_slug=None,
-    x_brain_id=None,
-    body_brain_id=None,
-) -> brain_id
-```
-
-Rules:
-
-1. workspace route slug wins as the requested scope;
-2. conflicting header/body scope is rejected;
-3. per-brain PAT may only access its allowed brain;
-4. system PAT may access any non-archived workspace;
-5. legacy unscoped routes retain current behavior.
-
-Every handler should ultimately use this central resolver rather than inventing its own precedence rules.
-
-### 7.4 Public URL construction
-
-Add or reuse a setting:
-
-```text
-PUBLIC_BASE_URL=https://brain.example.com
-```
-
-If unset, derive from the incoming request only where safe and consistent with existing proxy/header behavior.
-
-Honor trusted proxy headers only according to existing server/deployment policy; do not blindly trust arbitrary `X-Forwarded-*` headers.
-
-Strip trailing slash during normalization.
-
-### 7.5 OpenAPI
-
-Keep the global OpenAPI document working.
-
-Additionally consider:
-
-```http
-GET /brains/{workspace_slug}/api/openapi.json
-```
-
-If implemented, it should describe the workspace API with server/base URL already scoped to that workspace. This is highly useful for agents and generated clients.
-
-This is desirable for v1 but may be implemented after the essential facade routes if OpenAPI mounting creates disproportionate complexity.
-
+For 4xx/5xx:
+render the structured error;
+do not start polling.
+For malformed 2xx without task ID:
+fail client-side with a deterministic contract error;
+do not request `/tasks/None`, `/tasks/null`, etc.
+Add a regression test proving failed ingestion generates zero task-status requests.
 ---
-
-## 8. Console information architecture
-
-### 8.1 Route workspaces explicitly
-
-Replace implicit session-only workspace context with URL-addressable workspace routing.
-
-Target routes:
-
+13. Route discovery
+Do not add arbitrary aliases solely to hide caller mistakes.
+Document canonical routes and mark observed wrong patterns as invalid.
+Canonical examples:
 ```text
-/console/w/:workspaceSlug/
-/console/w/:workspaceSlug/graph
-/console/w/:workspaceSlug/data
-/console/w/:workspaceSlug/observations
-/console/w/:workspaceSlug/vectors
-/console/w/:workspaceSlug/tasks
-/console/w/:workspaceSlug/ingest
-/console/w/:workspaceSlug/settings
+POST /system/brains
+POST /system/workspaces
+GET  /brains/{slug}/agent/capabilities
+GET  /brains/{slug}/api/openapi.json
+GET  /brains/{slug}/agent/openapi.json
 ```
-
-Keep `/console/` backward compatible by redirecting to:
-
-1. last active accessible workspace, else
-2. `default`, else
-3. first accessible workspace, else
-4. an empty-state workspace creation screen for a system PAT.
-
-### 8.2 Workspace tabs
-
-Replace the current primary `<Select>` switcher on desktop with a top-level tab strip.
-
-Desired behavior:
-
+Invalid/obsolete examples seen during probes:
 ```text
-[ Company ] [ Aux Research ] [ Agent Memory ] [ + ]
+POST /brains
+POST /system/brains/{id}
+GET  /system/brains/{id}
+GET  /agent/capabilities
+GET  /brains/{slug}/api/meta/login-info
 ```
-
-Requirements:
-
-- active tab is visually obvious;
-- click switches workspace without a full browser reload;
-- switching preserves the current subpage when valid:
-  - `/w/company/graph` → `/w/aux-research/graph`;
-- each tab uses `display_name`, with slug available as tooltip/subtext where useful;
-- horizontal overflow scrolls gracefully;
-- keyboard accessible;
-- mobile may use the existing/select-style compact switcher if tabs do not fit;
-- `+` opens workspace creation only for authorized system-level credentials;
-- archived workspaces are excluded by default.
-
-The existing selector can remain as a mobile/fallback component.
-
-### 8.3 No `window.location.reload()`
-
-Workspace switching must update React state/router context and refetch the active page.
-
-Remove the existing reload-based switch path.
-
-### 8.4 Workspace context provider
-
-Create a central client-side provider/hook, for example:
-
-```ts
-<WorkspaceProvider>
-useWorkspace()
+Clients should discover routes from workspace discovery/OpenAPI instead of guessing paths.
+---
+14. Runtime tracing hardening
+14.1 Probe only active dependencies
+HF profile should monitor:
+```text
+PostgreSQL  yes
+Redis       yes
+Ollama      yes
 ```
-
-It should expose roughly:
-
-```ts
+Probe MongoDB/Neo4j/Milvus/RabbitMQ only when configured as active backends.
+14.2 Queue consumer invariant
+No trace consumer/sink must mean no indefinitely accumulating queue.
+Acceptable designs:
+do not enqueue when no subscriber exists;
+install a bounded logging subscriber;
+explicit `TRACE_MODE=disabled|log|queue`.
+HF default must not fill the 10k queue and spam one warning per dropped event.
+14.3 Saturation behavior
+If drops occur:
+rate-limit warning logs;
+expose dropped-event count;
+do not emit an endless warning storm.
+---
+15. Persistence state and release gate
+BrainAPI is a memory service. Ephemeral state must be first-class and visible.
+Expose:
+```text
+PERSISTENCE_MODE=durable|ephemeral
+```
+auto-detected from configured durable root.
+Health/readiness should include non-secret persistence state.
+Example:
+```json
 {
-  workspaces,
-  activeWorkspace,
-  activeBrainId,
-  loading,
-  error,
-  canManageWorkspaces,
-  switchWorkspace(slug),
-  refreshWorkspaces(),
+  "status": "degraded",
+  "service": "brainapi",
+  "persistence": {
+    "mode": "ephemeral",
+    "root": "/app/.data/brainapi"
+  }
 }
 ```
-
-The route parameter is the primary active-workspace source of truth.
-
-Avoid duplicating workspace state independently across pages.
-
-### 8.5 API client behavior
-
-Update `console/src/lib/api.ts` so page calls derive brain context from the active workspace rather than depending only on a mutable global session brain.
-
-Preferred pattern:
-
-- authentication session stores server URL + credentials;
-- workspace routing stores active workspace;
-- API calls accept/derive workspace explicitly;
-- legacy `session.brainId` may be retained temporarily for migration/backward compatibility, but should no longer be the sole source of truth.
-
-A tab change must not require rewriting authentication credentials.
-
----
-
-## 9. Workspace settings page
-
-Add:
-
+Production without durable storage may start only with an explicit staging/recovery override such as:
 ```text
-/console/w/:workspaceSlug/settings
+ALLOW_EPHEMERAL_STORAGE=true
 ```
-
-Show:
-
-- display name;
-- slug;
-- brain ID;
-- description;
-- status;
-- canonical API base URL;
-- canonical Console URL;
-- copy buttons;
-- example cURL request using that workspace URL;
-- archive action if authorized.
-
-Never display stored PATs.
-
-Example integration snippet:
-
-```bash
-curl -X POST \
-  "$WORKSPACE_API_URL/retrieve/context" \
-  -H "Authorization: Bearer $BRAINPAT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"What do we know about this customer?"}'
-```
-
-Notice that no `brain_id` or `X-Brain-ID` is needed when using the workspace API URL.
-
+but then:
+health remains degraded;
+console shows a persistent warning;
+production release qualification is NO-GO.
+Do not break local development defaults unnecessarily.
 ---
-
-## 10. Workspace creation UI
-
-For system credentials add a create-workspace dialog/page.
-
-Fields:
-
-- name (required);
-- slug (auto-generated, editable before creation);
-- description (optional).
-
-On success:
-
-1. refresh workspace list;
-2. create a new tab;
-3. navigate to `/console/w/{slug}/`;
-4. show the workspace API URL prominently.
-
-Handle duplicate slug/brain errors inline.
-
+16. Secondary hardening
+Implement where safe in this pass; otherwise report explicitly as follow-up blockers.
+PostgreSQL
+new clusters should use UTF-8 rather than `SQL_ASCII`;
+prefer safe local password/SCRAM auth over broad trust if practical;
+do not destructively reinitialize existing clusters.
+Celery
+Run worker as a dedicated unprivileged user rather than root.
+Pydantic warning
+Resolve the unresolved `lifespan` forward-reference warning or identify its upstream owner. Do not globally suppress warnings.
 ---
-
-## 11. Isolation requirements
-
-This section is non-negotiable.
-
-### 11.1 Data isolation
-
-For every brain-scoped backend operation verify the resolved `brain_id` propagates through:
-
-- ingest;
-- graph reads;
-- graph writes;
-- observations;
-- text chunks;
-- vectors;
-- retrieval/context;
-- search;
-- entity queries;
-- task/job creation;
-- task/job listing/status;
-- worker execution;
-- any cache keys;
-- any plugin memory/state that is intended to be brain-specific.
-
-### 11.2 Async jobs
-
-If Celery/tasks carry brain context today, ensure workspace-routed requests enqueue the exact resolved `brain_id`.
-
-Never depend on process-global active workspace state in workers.
-
-### 11.3 Caches
-
-Any cache containing brain-derived data must include `brain_id` in its key.
-
-### 11.4 Browser state
-
-Queries for workspace A must never remain rendered when switching to B.
-
-If using TanStack Query or another cache layer, include workspace/brain ID in all relevant query keys and invalidate/refetch correctly on switch.
-
----
-
-## 12. Authentication and authorization
-
-Preserve existing BrainPAT behavior.
-
-### System PAT
-
-May:
-
-- list workspaces;
-- switch among authorized brains;
-- create/update/archive workspaces;
-- call each workspace endpoint.
-
-### Per-brain PAT
-
-May:
-
-- access only its associated workspace;
-- see only that workspace in the Console;
-- use its canonical workspace API URL;
-- never switch to another workspace by changing URL manually.
-
-A request with a per-brain PAT to another workspace slug must return `403`, not silently fall back to the permitted brain.
-
-### Do not encode secrets into URLs
-
-Workspace URLs identify the workspace, not the credential.
-
----
-
-## 13. Backward compatibility
-
-The following should continue to work unless a test proves the current repo deliberately behaves differently:
-
+17. Console access-token UX
+System administrators get an `Access tokens` section in workspace settings.
+Show only metadata:
 ```text
-POST /ingest/
-POST /retrieve/context
-...
+Label
+Token prefix
+Permissions
+Created
+Last used
+Expiry
+Status
 ```
-
-with existing BrainPAT + `X-Brain-ID` behavior.
-
-Also preserve current clients that send `brain_id` in bodies where supported.
-
-Avoid breaking the current Python/JS client contracts merely to add path-scoped workspace URLs.
-
----
-
-## 14. Proposed frontend file changes
-
-Exact names may adapt to existing conventions after inspection.
-
-Likely changes:
-
+Actions:
 ```text
-console/src/App.tsx
-console/src/components/Layout.tsx
-console/src/lib/api.ts
-console/src/lib/auth.ts                 # only if session migration is needed
-
-console/src/workspaces/
-  WorkspaceProvider.tsx
-  WorkspaceTabs.tsx
-  workspaceRoutes.ts
-  types.ts
-
-console/src/pages/WorkspaceSettingsPage.tsx
-console/src/components/CreateWorkspaceDialog.tsx
+Create token
+Revoke token
 ```
-
-Do not introduce a new state library unless the existing stack genuinely requires it.
-
----
-
-## 15. Proposed backend structure
-
-Codex must inspect the backend package layout before choosing exact paths. Prefer the repository's established naming/conventions.
-
-Conceptual additions:
-
+Creation must warn:
 ```text
-.../models/workspace.py
-.../services/workspaces.py
-.../routes/system_workspaces.py
-.../routing/workspace_scope.py
-.../routes/workspace_api.py
+This token is shown once. Copy it now.
 ```
-
-Responsibilities:
-
-- `Workspace` model/repository: persistence only;
-- workspace service: CRUD + migration + URL construction;
-- system routes: management/discovery;
-- scope resolver: authorization and brain resolution;
-- path-scoped API facade: reuses existing brain-scoped handlers/services.
-
-Do not put business logic directly into React or duplicate route implementation wholesale.
-
+No reveal-existing-token function.
+Never show `SYSTEM_PAT` in the UI.
+Scoped users must not see token administration unless explicitly authorized.
 ---
-
-## 16. Tests
-
-### 16.1 Backend unit tests
-
-Add tests for:
-
-- slug normalization/validation;
-- unique slug and brain ID;
-- workspace bootstrap from existing brains;
-- idempotent migration;
-- URL construction;
-- scope resolver precedence;
-- conflicting workspace slug vs `X-Brain-ID` rejected;
-- per-brain PAT cannot cross workspace;
-- system PAT can access multiple workspaces.
-
-### 16.2 Backend integration tests
-
-Create at least two workspaces, e.g. `alpha` and `beta`.
-
-Verify:
-
-1. ingest a unique fact into `alpha` via `/brains/alpha/api/ingest/...`;
-2. ingest a different unique fact into `beta`;
-3. retrieval in `alpha` cannot retrieve beta-only data;
-4. retrieval in `beta` cannot retrieve alpha-only data;
-5. equivalent legacy header-scoped request produces the same brain selection;
-6. async task created through `alpha` remains alpha-scoped;
-7. invalid/archived workspace returns a clear 404/410 according to chosen semantics.
-
-### 16.3 Frontend tests
-
-Verify:
-
-- workspace tabs render from registry;
-- route selects correct active workspace;
-- switching tabs preserves subpage;
-- switching does not trigger `window.location.reload()`;
-- page data refetches for the new brain;
-- unauthorized workspace route is rejected/redirected safely;
-- mobile switcher remains usable;
-- create dialog adds/navigates to the new workspace;
-- API URL copy value is correct.
-
-### 16.4 Regression tests
-
-Existing BrainAPI tests, Console build, lint/typecheck, and existing API contracts must remain green.
-
----
-
-## 17. Acceptance criteria
-
-The feature is complete when all of the following are demonstrably true:
-
-- [ ] At least 3 brains can coexist in one running BrainAPI deployment.
-- [ ] Each appears as a named Console workspace.
-- [ ] Desktop Console exposes them as tabs.
-- [ ] Clicking a tab switches without a full browser reload.
-- [ ] `/console/w/{slug}/...` is directly addressable/bookmarkable.
-- [ ] Switching from one workspace to another retains the current section where possible.
-- [ ] Every workspace has a canonical API URL returned by the backend.
-- [ ] `POST {workspace_api_url}/retrieve/context` works without `X-Brain-ID`.
-- [ ] `POST {workspace_api_url}/ingest/...` scopes writes to that workspace.
-- [ ] Conflicting explicit brain scopes are rejected.
-- [ ] A per-brain PAT cannot access another workspace by editing the URL.
-- [ ] A system PAT can list/switch/manage workspaces.
-- [ ] Existing header/body-scoped API clients still work.
-- [ ] Existing installations gain workspace records without losing data.
-- [ ] No workspace-specific secret appears in a URL or frontend bundle.
-- [ ] All relevant tests/build/typecheck/lint pass.
-
----
-
-## 18. Implementation phases
-
-### Phase 0 — audit and test map
-
-Before changing behavior:
-
-1. identify backend app/router entry points;
-2. find the current brain creation/listing source of truth;
-3. find the canonical auth/brain-scope dependency;
-4. enumerate all public brain-scoped routers;
-5. identify persistence used for brain metadata;
-6. identify how Celery/job payloads carry brain ID;
-7. identify frontend requests that rely on global session `brainId`;
-8. run the relevant existing tests and record baseline.
-
-### Phase 1 — workspace registry + discovery
-
-Implement:
-
-- workspace persistence/model;
-- idempotent bootstrap from current brains;
-- `GET /system/workspaces`;
-- `GET /system/workspaces/{slug}`;
-- endpoint URL generation;
-- management auth.
-
-No destructive changes to existing APIs.
-
-### Phase 2 — path-scoped workspace API
-
-Implement:
-
-- `/brains/{slug}/api/...` routing;
-- canonical scope resolver;
-- conflict rejection;
-- PAT authorization;
-- integration tests proving data isolation.
-
-### Phase 3 — URL-addressed Console workspaces
-
-Implement:
-
-- `/w/:workspaceSlug/...` route hierarchy;
-- `WorkspaceProvider`;
-- API client scoping;
-- remove reload-based switching;
-- redirects/backward compatibility.
-
-### Phase 4 — workspace tab UX + management
-
-Implement:
-
-- desktop workspace tab strip;
-- mobile fallback selector;
-- create-workspace UI;
-- settings/API endpoint page;
-- copy actions.
-
-### Phase 5 — hardening
-
-- full regression suite;
-- authorization tests;
-- two-brain/three-brain isolation tests;
-- proxy/base URL tests;
-- deployment smoke test;
-- docs/examples.
-
----
-
-## 19. Deployment considerations
-
-This design must work behind a single public port and reverse proxy.
-
-For Hugging Face Spaces or similar environments, one public origin is enough:
-
+18. Brain/workspace response audit
+These must never return credential plaintext:
 ```text
-https://<space>.hf.space/console/w/aux-research/
-https://<space>.hf.space/brains/aux-research/api/retrieve/context
-https://<space>.hf.space/brains/company/api/retrieve/context
+/system/brains-list
+/system/workspaces
+/system/workspaces/{slug}
+workspace discovery
+console bootstrap
 ```
-
-No dynamic port allocation is required.
-
-If the application has a configurable root path, proxy prefix, or forwarded host mechanism, integrate with it rather than hard-coding origin URLs.
-
+Remove/deprecate `pat` from client-visible Brain models.
+A legacy DB `pat` column may remain temporarily during migration but must not leak through serialization.
 ---
-
-## 20. Non-goals for this first implementation
-
-Do not add these unless they are trivial consequences of existing architecture:
-
-- a separate database instance per brain;
-- a separate container/process per brain;
-- arbitrary custom domains per workspace;
-- workspace-to-workspace graph joins;
-- workspace sharing/invite/team ACL system beyond existing PAT authorization;
-- workspace cloning/export/import;
-- per-workspace LLM provider configuration;
-- destructive graph deletion UI;
-- replacing current BrainPAT auth.
-
-These can be layered on later once workspaces are first-class.
-
+19. Logging/redaction
+Create a reusable secret-redaction policy for:
+```text
+SYSTEM_PAT
+Authorization
+BrainPAT
+new access-token plaintext
+legacy Brain PAT
+Postgres password
+Redis password
+Celery URL credentials
+```
+Do not debug auth by logging token values.
+Database errors must no longer contain plaintext token INSERTs because new token storage contains only hashes.
 ---
-
-## 21. Engineering constraints
-
-- Preserve existing project conventions and public APIs.
-- Reuse `brain_id` instead of inventing a second storage partition key.
-- Prefer one canonical workspace/brain scope resolver.
-- No process-global mutable active workspace.
-- No full-page reload for workspace switching.
-- No self-proxy HTTP request for workspace facade if router/service reuse is practical.
-- No secrets in workspace metadata, API URLs, logs, or frontend state beyond current credential handling.
-- Migrations must be idempotent and safe for existing data.
-- Add tests before or alongside each behavioral change.
-- Update documentation and `.env.example` if `PUBLIC_BASE_URL` or another setting is added.
-
+20. Required tests
+20.1 Config resolution
+```text
+SYSTEM_PAT only                 -> success
+legacy BRAINPAT_TOKEN only      -> success + deprecation
+both identical                  -> success
+both different                  -> SYSTEM_PAT_CONFLICT / startup failure
+neither in production           -> failure
+no default admin token          -> proven
+```
+20.2 Auth parity
+Across root HTTP, workspace API, Agent API, workspace MCP and retained legacy MCP:
+```text
+SYSTEM_PAT             -> system access
+scoped new token       -> own brain allowed
+scoped new token       -> other brain 403
+unknown token          -> 401
+missing token          -> 401
+revoked token          -> 401
+legacy Brain PAT       -> own brain allowed during migration
+```
+20.3 Console login
+System:
+```text
+POST /auth/session -> success
+GET /auth/me       -> brain_id null
+GET /system/workspaces -> success
+no /meta/entity-labels validation required
+```
+Scoped:
+```text
+/auth/session -> success
+/auth/me      -> correct brain
+workspace discovery -> only authorized workspace
+```
+Invalid credential yields 401 and no session cookie.
+Logout invalidates the server session.
+20.4 Browser secret handling
+Prove plaintext tokens are absent from:
+```text
+localStorage
+sessionStorage
+URL
+persisted React state after login
+```
+20.5 Token lifecycle
+```text
+create Brain -> no token generated
+create Workspace -> no token generated
+create access token -> plaintext once
+list tokens -> no plaintext/hash
+use token -> success
+revoke -> subsequent auth fails
+```
+20.6 Validation serializer
+Malformed structured ingestion on root and workspace API:
+```text
+422 VALIDATION_ERROR
+JSON serializable
+no exception object
+```
+20.7 Task polling
+Failed ingestion generates zero `/tasks/None`/`null` requests.
+20.8 Trace monitoring
+HF profile:
+```text
+probes Postgres, Redis, Ollama
+not Mongo/Neo4j/Milvus/RabbitMQ
+queue remains bounded/drained over simulated time
+```
+20.9 Persistence
+Test durable and ephemeral modes; ephemeral production is visibly degraded and cannot receive production GO.
+20.10 Preserve existing gates
+Rerun:
+authoritative registry B1-B4 tests;
+real PostgreSQL/Redis integration;
+EmbeddingGemma qualification.
+Embedding requirements remain:
+```text
+embeddinggemma-2:270m
+native 768
+stored 512
+all five pgvector schemas vector(512)
+no runtime model pull
+```
 ---
+21. Implementation order
+Phase A — central auth resolution
+Add central `AuthService` / Principal model.
+Resolve `SYSTEM_PAT` plus legacy alias.
+Switch middleware, meta and MCP to it.
+Add config/auth tests.
+Keep legacy Brain PAT validation.
+Phase B — console sessions
+Add `/auth/session`, `/auth/me`, `/auth/logout`.
+Redis-backed opaque sessions + CSRF.
+Remove plaintext PAT browser persistence.
+Remove fake default Brain.
+Remove `/meta/entity-labels` login validation.
+Phase C — explicit access-token registry
+Add token persistence.
+Add create/list/revoke APIs.
+Cryptographic generation + hash at rest.
+Stop automatic `Brain.pat` creation.
+Add admin token-management UI.
+Phase D — legacy migration
+Preserve legacy validation.
+Add migration/rotation tooling.
+Document exposed-token rotation.
+Phase E — runtime correctness
+Fix 422 serialization.
+Fix null task polling.
+Fix trace monitoring/queue behavior.
+Add persistence degraded state.
+Apply safe secondary hardening.
+Phase F — qualification
+focused deterministic tests;
+real PostgreSQL/Redis integration;
+full non-integration suite;
+full production Docker build;
+offline EmbeddingGemma qualification;
+exact-SHA HF deployment;
+live acceptance.
+---
+22. Live HF acceptance gate
+Do not claim completion from local tests alone.
+Deploy one exact candidate SHA and record both GitHub candidate and HF source revision.
+Authentication
+```text
+SYSTEM_PAT:
+  /auth/session -> success
+  /auth/me -> system, brain_id=null
+  /system/workspaces -> 200
+  console login -> success
+  workspace MCP -> success
+```
+There must be no second administrator secret.
+Scoped token
+Create a temporary named token for a disposable workspace:
+```text
+own Agent API -> success
+own Native API -> success
+own MCP -> success
+other workspace -> 403
+revoke token -> subsequent request 401
+```
+Registry regression
+```text
+unknown entities -> 404 BRAIN_NOT_FOUND
+unknown search -> 404 BRAIN_NOT_FOUND
+unknown context -> 404 BRAIN_NOT_FOUND
+```
+Registry/storage/cache unchanged.
+Validation
+Malformed structured ingest:
+```text
+422 VALIDATION_ERROR
+```
+not 500.
+UI/client must not poll a task after that failure.
+Tracing
+Observe multiple monitor intervals:
+no queue-full storm;
+no DOWN spam for unused dependencies.
+Persistence
+If runtime remains ephemeral:
+```text
+release = DEGRADED / NOT PRODUCTION DURABLE
+```
+---
+23. Out of scope
+Do not redesign:
+EmbeddingGemma model choice;
+768 -> 512 Matryoshka/L2 pipeline;
+retrieval/reranking architecture;
+workspace URL authority;
+B1-B4 registry architecture;
+general agent orchestration;
+external LifeOS behavior beyond documented client contracts.
+Do not introduce a second identity provider merely to avoid fixing token semantics.
+Optional MCP OAuth may remain, but it must resolve principals through the same central auth service.
+---
+24. Documentation terminology
+Update `Agent.md`, HF env example, hosted-use docs, OpenAPI descriptions and console copy.
+Canonical terms:
+```text
+SYSTEM_PAT
+    deployment administrator secret
 
-## 22. Deliverables
+Access token
+    named scoped credential for one Brain/Workspace
 
-The implementation PR should contain:
+Console session
+    temporary browser session derived from verified credentials
 
-1. workspace registry/model + migration/bootstrap;
-2. workspace management/discovery API;
-3. path-scoped hosted API facade;
-4. canonical scope/auth resolution;
-5. URL-addressable Console workspace routing;
-6. tabbed workspace switcher;
-7. create/manage workspace UI;
-8. per-workspace endpoint display/copy UX;
-9. isolation, authorization, frontend, and regression tests;
-10. documentation with curl examples and deployment URL behavior.
+Brain
+    memory namespace
 
+Workspace
+    hosted routing/display facade for a Brain
+```
+The `BrainPAT` header may remain as compatibility transport, but do not call every credential a BrainPAT in human-facing UX.
+---
+25. Required final report
+Return:
+```text
+branch
+base SHA
+final SHA
+files changed
+
+auth architecture implemented
+SYSTEM_PAT migration behavior
+legacy BRAINPAT_TOKEN behavior
+legacy per-brain PAT behavior
+new access-token schema
+console session behavior
+
+test counts/results:
+  config/auth
+  console
+  token lifecycle
+  migration
+  validation 422
+  task polling
+  tracing
+  persistence
+  registry regression
+  embedding qualification
+  integration
+  full suite
+
+production Docker build result
+HF deployed source revision
+live auth results
+live scoped-token results
+live registry results
+live 422 result
+trace result
+persistence mode
+
+known exposed-token rotation status
+remaining blockers
+production GO/NO-GO
+```
+Do not report production GO while persistence is ephemeral.
+Do not report auth GO unless HTTP API, console and MCP all accept the same canonical system administrator credential.
+---
+26. Definition of done
+```text
+[ ] exactly one canonical system administrator credential exists
+[ ] SYSTEM_PAT works consistently in HTTP, console and MCP
+[ ] legacy BRAINPAT_TOKEN cannot become a second independent admin secret
+[ ] missing system secret fails closed
+[ ] no usable default admin token exists
+
+[ ] system console session has brain_id=null until workspace selection
+[ ] console does not validate login through /meta/entity-labels
+[ ] console does not persist plaintext PAT/token in browser storage
+
+[ ] Brain creation does not generate a credential
+[ ] Workspace creation does not generate a credential
+[ ] scoped tokens are explicit, named, revocable and hashed at rest
+[ ] plaintext scoped token is returned only once
+[ ] Brain/workspace listings expose no token plaintext
+
+[ ] old per-brain PATs temporarily work only for their own Brain
+[ ] exposed legacy tokens have a rotation path
+
+[ ] malformed requests return JSON-safe HTTP 422
+[ ] failed ingestion never causes /tasks/None polling
+
+[ ] trace monitor checks only active dependencies
+[ ] trace queue cannot silently fill forever without a consumer
+
+[ ] persistence mode is explicit
+[ ] ephemeral persistence prevents production GO
+
+[ ] authoritative registry regression tests pass
+[ ] EmbeddingGemma 768->512 qualification passes
+[ ] full production image builds
+[ ] exact candidate SHA is deployed and verified live
+```

@@ -14,8 +14,12 @@ import { connectSession, setSession } from "../lib/api";
 export default function LoginPage() {
   const navigate = useNavigate();
   const existing = loadSession();
+  const defaultApiBaseUrl = window.location.origin === "http://localhost:5173" || window.location.origin === "http://localhost:4173"
+    ? "http://localhost:8000"
+    : window.location.origin;
+
   const [apiBaseUrl, setApiBaseUrl] = useState(
-    existing?.apiBaseUrl ?? "http://localhost:8000",
+    existing?.apiBaseUrl ?? defaultApiBaseUrl,
   );
   const [pat, setPat] = useState(existing?.pat ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +115,7 @@ export default function LoginPage() {
               <Callout title="Token types">
                 <p className="mb-2">
                   <strong>System PAT</strong> — from{" "}
-                  <code>BRAINPAT_TOKEN</code> in your <code>.env</code>. Starts
+                  <code>SYSTEM_PAT</code> in your <code>.env</code>. Starts
                   on the default brain; switch brains from the header after
                   login.
                 </p>

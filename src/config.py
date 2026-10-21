@@ -524,6 +524,7 @@ class Config:
             ValueError: If `BRAINPAT_TOKEN` is not set in the environment.
         """
         self.brainpat_token = os.getenv("BRAINPAT_TOKEN", "brainpat_default_token")
+        self.system_pat = os.getenv("SYSTEM_PAT", "brainpat_default_token")
 
         self.models_mode = os.getenv("MODELS_MODE", "local")
         if self.models_mode not in _MODES:
