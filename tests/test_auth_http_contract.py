@@ -125,3 +125,13 @@ def test_invalid_login_and_cross_origin_creates_no_session(http):
     response=client.post('/auth/session',json={'token':'canonical-admin'},headers={'Origin':'https://evil.example'})
     assert response.status_code==403 and 'set-cookie' not in response.headers
     assert not sessions.redis.values
+
+
+def test_auth_openapi_responses_are_typed_and_token_listing_has_no_secret_fields(http):
+    client,*_=http
+    schema=client.get('/openapi.json').json()
+    for path,method in [('/auth/session','post'),('/auth/me','get'),('/auth/logout','post'),('/system/access-tokens','get'),('/system/access-tokens','post')]:
+        status='201' if path=='/system/access-tokens' and method=='post' else '200'
+        assert schema['paths'][path][method]['responses'][status]['content']['application/json']['schema'].get('$ref')
+    metadata=schema['components']['schemas']['AccessTokenMetadataResponse']['properties']
+    assert 'token' not in metadata and 'token_hash' not in metadata

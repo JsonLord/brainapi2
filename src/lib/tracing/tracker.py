@@ -20,6 +20,8 @@ _tenant_id_var: ContextVar[Optional[str]] = ContextVar("tenant_id", default=None
 
 class LocalTraceQueue:
     def __init__(self, max_size: int = 10000):
+        if max_size <= 0:
+            raise ValueError("Trace queue capacity must be positive and bounded")
         self._queue: asyncio.Queue[TraceEvent] = asyncio.Queue(maxsize=max_size)
 
     @property

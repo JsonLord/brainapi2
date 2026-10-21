@@ -53,3 +53,7 @@ def test_redaction_covers_headers_urls_and_nested_payloads(monkeypatch):
     payload={'Authorization':'Bearer anything','nested':{'password':'sensitive'},'message':'private-system-example postgres://user:password@localhost bpat_another-secret'}
     safe=json.dumps(redact(payload))
     for value in ['anything','sensitive','private-system-example','user:password','bpat_another-secret']: assert value not in safe
+
+
+def test_unbounded_trace_queue_configuration_is_rejected():
+    with pytest.raises(ValueError,match='bounded'): LocalTraceQueue(max_size=0)

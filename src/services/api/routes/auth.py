@@ -4,6 +4,7 @@ import os
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, SecretStr, Field
 
+from src.services.api.constants.auth import SessionResponse, LogoutResponse
 from src.services.auth import AuthError, get_auth_service
 from src.services.console_sessions import SESSION_COOKIE, get_console_sessions
 
@@ -21,7 +22,7 @@ def check_origin(request):
         raise HTTPException(403, "CSRF_ORIGIN_INVALID")
 
 
-@auth_router.post("/session")
+@auth_router.post("/session", response_model=SessionResponse)
 async def login(body: SessionLogin, request: Request, response: Response):
     check_origin(request)
     if request.url.scheme != "https" and os.getenv("ENV", "production") != "development":
@@ -40,13 +41,13 @@ async def login(body: SessionLogin, request: Request, response: Response):
     return {**principal.public(), "csrf_token": csrf}
 
 
-@auth_router.get("/me")
+@auth_router.get("/me", response_model=SessionResponse)
 async def me(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store"
     return {**request.state.principal.public(), "csrf_token": getattr(request.state, "csrf_token", None)}
 
 
-@auth_router.post("/logout")
+@auth_router.post("/logout", response_model=LogoutResponse)
 async def logout(request: Request, response: Response):
     get_console_sessions().revoke(request.cookies.get(SESSION_COOKIE))
     response.delete_cookie(SESSION_COOKIE, secure=True, httponly=True, samesite="strict", path="/")
