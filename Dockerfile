@@ -137,12 +137,6 @@ FROM python:3.11.14-slim-bookworm
 
 WORKDIR /app
 
-ARG BUILD_DATE
-ARG BUILD_SHA
-
-LABEL build_date="${BUILD_DATE}" \
-      build_sha="${BUILD_SHA}"
-
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
@@ -170,6 +164,14 @@ RUN apt-get update && apt-get upgrade -y \
     && mkdir -p /app/plugins && chown appuser:appuser /app/plugins
 
 COPY --from=runtime-files / /
+
+# Revision labels must not invalidate the dependency-installation layer.
+ARG BUILD_DATE
+ARG BUILD_SHA
+
+LABEL build_date="${BUILD_DATE}" \
+      build_sha="${BUILD_SHA}"
+
 VOLUME ["/app/plugins"]
 
 EXPOSE 7860
