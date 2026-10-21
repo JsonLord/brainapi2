@@ -115,7 +115,7 @@ export default function LoginPage() {
               <Callout title="Token types">
                 <p className="mb-2">
                   <strong>System PAT</strong> — from{" "}
-                  <code>BRAINPAT_TOKEN</code> in your <code>.env</code>. Starts
+                  <code>SYSTEM_PAT</code> in your <code>.env</code>. Starts
                   on the default brain; switch brains from the header after
                   login.
                 </p>
