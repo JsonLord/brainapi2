@@ -3,6 +3,7 @@
 import secrets
 import re
 from src.services.console_sessions import SESSION_COOKIE, get_console_sessions
+from starlette.exceptions import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from src.services.api.console_static import is_console_path
 from src.services.api.errors import error_response
@@ -48,6 +49,9 @@ class BrainPATMiddleware(BaseHTTPMiddleware):
                 service.authorize_workspace(principal, brain_id, request_permission(request.method, path))
         except AuthError as error:
             return error_response(request, status_code=error.status, detail=error.code, code=error.code)
+        except HTTPException as error:
+            return error_response(request, status_code=error.status_code, detail=error.detail,
+                                  code="CSRF_ORIGIN_INVALID" if error.detail == "CSRF_ORIGIN_INVALID" else None)
         except Exception:
             return error_response(request, status_code=503, detail="Authentication store unavailable")
         return await call_next(request)

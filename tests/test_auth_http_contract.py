@@ -135,3 +135,10 @@ def test_auth_openapi_responses_are_typed_and_token_listing_has_no_secret_fields
         assert schema['paths'][path][method]['responses'][status]['content']['application/json']['schema'].get('$ref')
     metadata=schema['components']['schemas']['AccessTokenMetadataResponse']['properties']
     assert 'token' not in metadata and 'token_hash' not in metadata
+
+def test_cookie_csrf_origin_failure_is_forbidden_not_service_unavailable(http):
+    client,*_=http
+    login=client.post('/auth/session',json={'token':'canonical-admin'})
+    response=client.post('/auth/logout',headers={'X-CSRF-Token':login.json()['csrf_token'],'Origin':'https://evil.example'})
+    assert response.status_code==403
+    assert client.get('/auth/me').status_code==200

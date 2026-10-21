@@ -106,6 +106,7 @@ def qualify():
                     check({w['brain_id'] for w in accessible.json()['workspaces']}=={names[0]},'Scoped console sees another workspace')
                 check(api.post('/auth/logout',headers=browser).status_code==403,'Cookie mutation bypassed CSRF')
                 browser['X-CSRF-Token']=login.json()['csrf_token']
+                check(api.post('/auth/logout',headers={**browser,'Origin':'https://untrusted.example'}).status_code==403,'Cross-origin CSRF failure misclassified')
                 check(api.post('/auth/logout',headers=browser).status_code==200,'Logout failed')
                 check(api.get('/auth/me',headers=browser).status_code==401,'Session survived logout')
             api.cookies.clear()
