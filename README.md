@@ -71,6 +71,24 @@ That trace is the difference. Not a nearest-neighbour guess — a **reasoned, wa
 
 ---
 
+## Authentication and durability
+
+`SYSTEM_PAT` is the one administrator credential for HTTP, console, Agent API,
+and MCP. A legacy `BRAINPAT_TOKEN` may temporarily alias it; different values
+fail startup. Brain/workspace creation does not issue credentials. Administrators
+create and revoke named scoped tokens through `/system/access-tokens`; plaintext
+is shown once and only hashes are persisted. Existing Brain PATs remain scoped
+compatibility credentials pending rotation.
+
+The console uses `/auth/session`, `/auth/me`, and `/auth/logout`, with an opaque
+HttpOnly/Secure/SameSite cookie and CSRF protection. It stores no submitted
+access token. System login has `brain_id=null` until workspace selection.
+
+`/health` reports durable or ephemeral storage. Without a persistent `/data`
+mount, production startup requires the explicit staging/recovery override
+`ALLOW_EPHEMERAL_STORAGE=true` and health remains degraded. This never means
+production GO. See [credential migration and runtime gates](docs/security/credentials.md).
+
 ## 🏃 Quickstart (fastest way to run it)
 
 The quickest way to get BrainAPI running is the **`brainapi` TUI** — a CLI that clones the project, sets up a Python environment, configures services, starts backing services, and launches everything for you. Run the interactive wizard, or pass flags to skip prompts (hybrid / non-interactive).
@@ -215,7 +233,7 @@ or callable through `/brains/{workspace_slug}/mcp`. Plugins likewise appear in
 the workspace registry only when they explicitly use the workspace-safe MCP
 registration contract.
 
-Log in to the console with the `BRAINPAT_TOKEN` generated during setup. That's it — you have a working brain.
+Log in over HTTPS with the operator-configured `SYSTEM_PAT` or an explicitly issued workspace access token. That's it — you have a working brain.
 
 ### TUI commands
 
@@ -283,7 +301,7 @@ curl -X POST http://localhost:8000/ingest/ \
 
 ## 🖥️ The Console
 
-The Console is a web UI for exploring everything inside your brain: the **graph**, **text chunks**, **vectors**, **observations**, **tasks**, and an **ingest** page to push new data. It's served on the same port as the API at `http://localhost:8000/console` and you log in with your `BRAINPAT_TOKEN`.
+The Console is a web UI for exploring everything inside your brain: the **graph**, **text chunks**, **vectors**, **observations**, **tasks**, and an **ingest** page to push new data. It's served on the same port as the API at `http://localhost:8000/console` and you exchange an administrator or workspace access token for an opaque browser session over HTTPS.
 
 <p align="center">
   <img src=".github/assets/console-sh.png" width="100%" alt="BrainAPI Console (screenshot coming soon)" />

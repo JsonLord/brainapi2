@@ -422,7 +422,7 @@ export default function GraphPage() {
           <Alert title="No nodes in this brain">
             Active brain: {activeBrainId}
             {activeBrainId === "default"
-              ? ". System PAT defaults to default — switch to your ingest brain in the header."
+              ? ". Select the workspace containing your ingested data."
               : ". If you expected data here, confirm ingest used this same brain id."}
           </Alert>
         </div>

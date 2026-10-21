@@ -526,10 +526,10 @@ class Config:
         """
         Initialize the application's central configuration by composing environment-backed sub-configurations and loading runtime flags.
 
-        This constructor instantiates Azure, Redis, Neo4j, Milvus, Embeddings, Mongo, GCP, and Celery configuration objects, reads the RUN_GRAPH_CONSOLIDATOR flag into `run_graph_consolidator`, and loads the `BRAINPAT_TOKEN` into `brainpat_token`.
+        This constructor instantiates Azure, Redis, Neo4j, Milvus, Embeddings, Mongo, GCP, and Celery configuration objects, reads the RUN_GRAPH_CONSOLIDATOR flag into `run_graph_consolidator`, and resolves the canonical administrator credential.
 
         Raises:
-            ValueError: If `BRAINPAT_TOKEN` is not set in the environment.
+            ValueError: If administrator credentials conflict or are missing in production.
         """
         from src.services.auth_config import resolve_system_pat
         self.system_pat = resolve_system_pat()
