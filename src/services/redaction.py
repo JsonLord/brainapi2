@@ -20,7 +20,7 @@ def redact(value):
         secret = os.getenv(name)
         if secret:
             value = value.replace(secret, "[REDACTED]")
-    value = re.sub(r"(?i)(authorization|brainpat|system_pat|brainpat_token|password)\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+", r"\1=[REDACTED]", value)
+    value = re.sub(r"(?i)\b(authorization|brainpat|system_pat|brainpat_token|password|pat)\b[\"']?\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|(?:Bearer\s+)?[^\s,;]+)", r"\1=[REDACTED]", value)
     value = re.sub(r"\bbpat_[A-Za-z0-9_-]+", "[REDACTED]", value)
     value = re.sub(r"\b[a-z0-9]{48}\b", "[REDACTED]", value)
     return re.sub(r"(\w+://)[^\s/@]*:[^\s/@]+@", r"\1[REDACTED]@", value)

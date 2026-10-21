@@ -57,3 +57,8 @@ def test_redaction_covers_headers_urls_and_nested_payloads(monkeypatch):
 
 def test_unbounded_trace_queue_configuration_is_rejected():
     with pytest.raises(ValueError,match='bounded'): LocalTraceQueue(max_size=0)
+
+
+def test_redaction_covers_stringified_header_and_sql_payloads():
+    for text in ["{'Authorization': 'Bearer opaque-credential'}", '{"pat": "opaque-credential"}', "password='opaque-credential'"]:
+        assert 'opaque-credential' not in redact(text)
