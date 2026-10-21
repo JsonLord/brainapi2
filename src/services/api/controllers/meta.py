@@ -26,7 +26,7 @@ async def get_login_info(request: Request):
     if not brainpat:
         raise HTTPException(status_code=401, detail="Invalid or missing BrainPAT header")
 
-    system_pat = os.getenv("BRAINPAT_TOKEN", "brainpat_default_token")
+    system_pat = os.getenv("SYSTEM_PAT", "brainpat_default_token")
     if brainpat == system_pat:
         return {"is_system_pat": True, "brain_id": "default"}
 

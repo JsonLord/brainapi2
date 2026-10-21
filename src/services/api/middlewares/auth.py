@@ -58,7 +58,7 @@ class BrainPATMiddleware(BaseHTTPMiddleware):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or missing BrainPAT header",
             )
-        system_pat = os.getenv("BRAINPAT_TOKEN")
+        system_pat = os.getenv("SYSTEM_PAT")
         workspace_discovery = (
             request.method == "GET"
             and request.url.path.startswith("/system/workspaces")

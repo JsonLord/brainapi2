@@ -242,7 +242,7 @@ production deployment until both the full build and real qualification pass.
 - In standalone deployment container environments, setting `PIPELINE_MODE=lightweight` and `EMBEDDINGS_PROVIDER=mock` or `fastembed` avoids hard runtime dependencies on external LLM services or Ollama instances.
 
 ### Security
-- `BRAINPAT_TOKEN` must be provided as an environment variable or Hugging Face Space Secret and never hardcoded in repository files or test scripts.
+- `SYSTEM_PAT` must be provided as an environment variable or Hugging Face Space Secret and never hardcoded in repository files or test scripts.
 - Public UI and documentation endpoints (`/`, `/console`, `/docs`, `/redoc`, `/health`, `/openapi.json`, `/meta/login-info`, `/api-docs`, `/favicon.ico`) must be excluded from `BrainPATMiddleware` and `BrainMiddleware` authentication checks. `GET /` redirects to `/console/`.
 
 ### Testing and Documentation Rules
@@ -276,7 +276,7 @@ production deployment until both the full build and real qualification pass.
 - In standalone deployment container environments, setting `PIPELINE_MODE=lightweight` and `EMBEDDINGS_PROVIDER=mock` or `fastembed` avoids hard runtime dependencies on external LLM services or Ollama instances.
 
 ### Security
-- `BRAINPAT_TOKEN` must be provided as an environment variable or Hugging Face Space Secret and never hardcoded in repository files or test scripts.
+- `SYSTEM_PAT` must be provided as an environment variable or Hugging Face Space Secret and never hardcoded in repository files or test scripts.
 - Public UI and documentation endpoints (`/`, `/console`, `/docs`, `/redoc`, `/health`, `/openapi.json`, `/meta/login-info`, `/api-docs`, `/favicon.ico`) must be excluded from `BrainPATMiddleware` and `BrainMiddleware` authentication checks. `GET /` redirects to `/console/`.
 
 ### Testing and Documentation Rules
