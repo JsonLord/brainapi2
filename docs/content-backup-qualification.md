@@ -43,11 +43,13 @@ Brain mutation was performed.
   return side-effect-free 404, duplicate/concurrent create is a conflict, IDs stay
   stable, and supported clear/delete operations work.
 
-GitHub backup-repository **dry-run** push was accepted earlier in the session;
-no ref was written. Later fresh Git operations failed with `could not read
-Username for 'https://github.com'`. Source publication and actual backup-repository
-push using the real Space `GITHUB_PAT` remain unqualified until the managed GitHub
-connection/secret is available. Do not substitute `SYSTEM_PAT` or `HF_TOKEN`.
+GitHub backup-repository **dry-run** push was accepted; no ref was written.
+A transient GitHub authentication failure during fetch resolved on the final
+source push. Feature commit `852b38191fefdc2aea4d2eea3451286b87dfa848` was pushed
+successfully to `JsonLord/brainapi2:feat/unified-auth-runtime` using a normal
+fast-forward push. Actual backup-repository publication using the real Space
+`GITHUB_PAT` remains unqualified: that secret is not injected into this workspace,
+and no deployment was authorized. Do not substitute `SYSTEM_PAT` or `HF_TOKEN`.
 
 The model/auth/registry contracts remain unchanged. Async checkpoint RPO and
 explicit degraded ephemeral-storage health remain applicable; see
