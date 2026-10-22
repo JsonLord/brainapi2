@@ -297,3 +297,16 @@ See `docs/security/credentials.md` for legacy migration and exposed-token rotati
 
 `/health` reports durability. Ephemeral staging requires explicit
 `ALLOW_EPHEMERAL_STORAGE=true` and remains degraded / production NO-GO.
+
+## GitHub Brain content recovery
+
+Read [content checkpoint/recovery instructions](docs/content-backup.md) before
+working on persistence. HF startup restores validated logical checkpoints from
+`JsonLord/nodepad-brain-backup:main` using the separate `GITHUB_PAT` Space secret,
+before workspace bootstrap and serving. Never back up auth registries/tokens,
+Redis, internal secrets, or PGDATA; never force push or overwrite nonempty local
+state of unknown lineage. API/MCP check the current container's restore gate.
+Configure the documented `BRAIN_BACKUP_*` variables; keep async checkpoint RPO and
+ephemeral health limitations explicit. No automatic deployment. The disposable
+round-trip gate is `scripts/qualify_content_backup.py`; never point it at real
+Brain databases. Auth tokens are separately reissued after ephemeral recovery.

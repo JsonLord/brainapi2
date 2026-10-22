@@ -20,6 +20,7 @@ class HealthResponse(BaseModel):
     status: str = Field(description="Service health status.")
     service: str = Field(description="Service name.")
     version: str = Field(description="Running BrainAPI version.")
+    backup: dict = Field(default_factory=dict, description="Non-secret remote checkpoint state.")
     persistence: dict = Field(default_factory=dict, description="Non-secret durability and release status.")
 
 
@@ -43,8 +44,10 @@ async def health() -> HealthResponse:
 
     from src.services.persistence import persistence_state
     state = persistence_state()
-    return HealthResponse(status="ok" if state["mode"] == "durable" else "degraded",
-                          service="brainapi", version=BRAIN_VERSION, persistence=state)
+    from src.services.brain_backup.state import public_status
+    backup = public_status()
+    return HealthResponse(status="ok" if state["mode"] == "durable" and backup.get("state", "ready") == "ready" else "degraded",
+                          service="brainapi", version=BRAIN_VERSION, persistence=state, backup=backup)
 
 
 @public_router.get(

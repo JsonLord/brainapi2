@@ -107,6 +107,8 @@ _workspace_mcp_app = workspace_mcp.streamable_http_app()
 
 @asynccontextmanager
 async def _lifespan(app):
+    from src.services.brain_backup.state import require_startup_ready
+    require_startup_ready()
     start_runtime_monitoring("brainapi-mcp")
     async with _mcp_app.router.lifespan_context(app):
         async with _workspace_mcp_app.router.lifespan_context(app):

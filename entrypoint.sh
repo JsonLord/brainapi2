@@ -46,6 +46,15 @@ export MCP_PORT="${MCP_PORT:-8001}"
 
 # Resolve the one administrator credential before starting any services.
 /app/.venv/bin/python -c 'from src.services.auth_config import resolve_system_pat; resolve_system_pat()'
+export BRAIN_BACKUP_ENABLED="${BRAIN_BACKUP_ENABLED:-true}"
+export BRAIN_BACKUP_STATE_DIR="${BRAIN_BACKUP_STATE_DIR:-/tmp/brainapi-backup-state}"
+export BRAIN_BACKUP_STARTUP_ID="$(/app/.venv/bin/python -c 'import uuid; print(uuid.uuid4())')"
+mkdir -p "$BRAIN_BACKUP_STATE_DIR"
+chown root:appuser "$BRAIN_BACKUP_STATE_DIR"
+chmod 2770 "$BRAIN_BACKUP_STATE_DIR"
+touch "$BRAIN_BACKUP_STATE_DIR/dirty"
+chown root:appuser "$BRAIN_BACKUP_STATE_DIR/dirty"
+chmod 0660 "$BRAIN_BACKUP_STATE_DIR/dirty"
 export TRACE_MODE="${TRACE_MODE:-log}"
 export BRAINAPI_DURABLE_ROOT="${BRAINAPI_DURABLE_ROOT:-/data}"
 export PERSISTENT_ROOT="$(/app/.venv/bin/python -c 'from src.services.persistence import enforce_persistence; print(enforce_persistence()["root"])')"
@@ -136,18 +145,17 @@ done
 
 echo "[entrypoint] Ensuring Postgres database and extension..."
 su - postgres -c "psql -h /tmp -d template1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' 2>/dev/null || true"
-su - postgres -c "psql -h /tmp -c \"CREATE USER $POSTGRES_USERNAME WITH PASSWORD '$POSTGRES_PASSWORD';\" 2>/dev/null || true"
-su - postgres -c "psql -h /tmp -c \"ALTER USER $POSTGRES_USERNAME WITH PASSWORD '$POSTGRES_PASSWORD';\" 2>/dev/null || true"
-su - postgres -c "psql -h /tmp -c \"CREATE DATABASE $POSTGRES_SYSTEM_DATABASE OWNER $POSTGRES_USERNAME;\" 2>/dev/null || true"
-su - postgres -c "psql -h /tmp -d $POSTGRES_SYSTEM_DATABASE -c 'CREATE EXTENSION IF NOT EXISTS vector;' 2>/dev/null || true"
-su - postgres -c "psql -h /tmp -c \"GRANT ALL PRIVILEGES ON DATABASE $POSTGRES_SYSTEM_DATABASE TO $POSTGRES_USERNAME;\" 2>/dev/null || true"
-su - postgres -c "psql -h /tmp -c \"ALTER USER $POSTGRES_USERNAME CREATEDB;\" 2>/dev/null || true"
+# This child drops to postgres for peer auth; no passwords enter shell arguments
+# or failed CREATE ROLE statements on repeated container starts.
+/app/.venv/bin/python /app/scripts/provision_postgres.py
 
 echo "[entrypoint] Waiting for Redis readiness check..."
 until REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h 127.0.0.1 -p $REDIS_PORT ping | grep -q PONG; do
     sleep 1
 done
 
+echo "[entrypoint] Validating content backup before workspace bootstrap..."
+/app/.venv/bin/python -m src.services.brain_backup restore
 echo "[entrypoint] Verifying BrainAPI workspace bootstrap..."
 
 /app/.venv/bin/python -c "

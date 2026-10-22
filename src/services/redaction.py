@@ -5,8 +5,8 @@ import os
 import re
 import traceback
 
-_SECRET_NAMES = {"SYSTEM_PAT", "BRAINPAT_TOKEN", "POSTGRES_PASSWORD", "REDIS_PASSWORD"}
-_SECRET_KEYS = {"authorization", "brainpat", "token", "token_hash", "password", "system_pat", "brainpat_token", "pat"}
+_SECRET_NAMES = {"SYSTEM_PAT", "GITHUB_PAT", "HF_TOKEN", "BRAINPAT_TOKEN", "POSTGRES_PASSWORD", "REDIS_PASSWORD"}
+_SECRET_KEYS = {"github_pat", "hf_token", "authorization", "brainpat", "token", "token_hash", "password", "system_pat", "brainpat_token", "pat"}
 
 
 def redact(value):

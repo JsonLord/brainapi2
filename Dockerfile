@@ -151,6 +151,7 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     curl \
+    git \
     util-linux \
     postgresql-15 \
     postgresql-contrib-15 \
@@ -168,6 +169,7 @@ COPY --from=runtime-files / /
 # Revision labels must not invalidate the dependency-installation layer.
 ARG BUILD_DATE
 ARG BUILD_SHA
+ENV BUILD_SHA=${BUILD_SHA}
 
 LABEL build_date="${BUILD_DATE}" \
       build_sha="${BUILD_SHA}"

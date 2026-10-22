@@ -89,6 +89,11 @@ class _PoolRegistry:
                 return existing
 
             config.postgresql.validate_credentials()
+            from src.services.brain_backup.state import enabled
+            extras = {}
+            if enabled():
+                from src.services.brain_backup.dirty import connection_factory
+                extras["connection_factory"] = connection_factory(_system_dbname())
             pool = psycopg2.pool.ThreadedConnectionPool(
                 minconn=minconn,
                 maxconn=maxconn,
@@ -97,6 +102,7 @@ class _PoolRegistry:
                 user=config.postgresql.username,
                 password=config.postgresql.password,
                 dbname=dbname,
+                **extras,
             )
             self._pools[dbname] = pool
             self._evict_if_needed()

@@ -94,6 +94,8 @@ def stable_operation_id(route: APIRoute) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from src.services.brain_backup.state import require_startup_ready
+    require_startup_ready()
     from src.core.plugins.context import PluginContext
     from src.core.plugins.loader import PluginLoader
 

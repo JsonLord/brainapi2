@@ -854,3 +854,17 @@ Do not report auth GO unless HTTP API, console and MCP all accept the same canon
 [ ] full production image builds
 [ ] exact candidate SHA is deployed and verified live
 ```
+
+## GitHub content checkpoints
+
+Content backup runs before WorkspaceService.bootstrap and before serving. It
+preserves canonical Brain IDs/workspaces and logical PostgreSQL data/graph/vector
+contents with the full EmbeddingGemma index identity. Authentication registries,
+legacy PATs, SYSTEM_PAT/GITHUB_PAT, token hashes, console/CSRF/Redis state and
+internal passwords are excluded. Empty local data may restore a fully validated
+snapshot; populated databases with unknown/divergent lineage fail closed rather
+than being overwritten. Only registered Brains are exported. Periodic debounced
+checkpoints and a bounded graceful-shutdown attempt use non-force Git pushes,
+checksums and an operation lock. Existing authoritative registry, unified-auth,
+side-effect-free missing-Brain reads and 768→512 embedding contracts continue to
+apply. See docs/content-backup.md for format, recovery, variables and RPO limits.
