@@ -47,8 +47,28 @@ class GitRepository:
         except (OSError, subprocess.TimeoutExpired):
             raise BackupError("BACKUP_GIT_UNAVAILABLE") from None
         if check and result.returncode:
-            raise BackupError("BACKUP_GIT_OPERATION_FAILED")
+            # Live qualification must distinguish access, transport and local
+            # failures without emitting Git stderr (which may contain secrets).
+            operation = next((arg.upper().replace("-", "_") for arg in args
+                              if arg in {"init", "ls-remote", "fetch", "checkout", "clean", "rev-parse", "add", "commit", "push"}), "OPERATION")
+            failure = self._failure_category(result.stderr)
+            raise BackupError(f"BACKUP_GIT_{operation}_{failure}")
         return result
+
+    @staticmethod
+    def _failure_category(stderr):
+        message = stderr.lower()
+        categories = (
+            ("AUTHENTICATION_FAILED", (b"authentication failed", b"invalid username or token", b"invalid username or password", b"error: 401")),
+            ("REPOSITORY_ACCESS_DENIED", (b"repository not found", b"error: 403", b"access denied")),
+            ("CREDENTIAL_HELPER_FAILED", (b"askpass", b"could not read username", b"could not read password")),
+            ("TLS_FAILED", (b"ssl certificate", b"certificate verification", b"gnutls_handshake")),
+            ("NETWORK_FAILED", (b"could not resolve", b"failed to connect", b"connection timed out", b"connection reset")),
+            ("OWNERSHIP_FAILED", (b"dubious ownership",)),
+            ("REMOTE_CONFLICT", (b"non-fast-forward", b"fetch first")),
+            ("FILESYSTEM_FAILED", (b"permission denied", b"read-only file system", b"no space left")),
+        )
+        return next((category for category, markers in categories if any(marker in message for marker in markers)), "OPERATION_FAILED")
 
     def fetch(self):
         self.path.mkdir(parents=True, exist_ok=True, mode=0o700)

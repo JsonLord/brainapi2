@@ -295,3 +295,26 @@ def test_deleted_manifest_never_becomes_empty_first_boot(checkpoint):
     manager.receipt_path.unlink()
     with pytest.raises(BackupError, match="MANIFEST_MISSING"):
         manager.startup()
+
+
+@pytest.mark.parametrize('stderr,category', [
+    (b'remote: Invalid username or token. fatal: Authentication failed', 'AUTHENTICATION_FAILED'),
+    (b'remote: Repository not found.', 'REPOSITORY_ACCESS_DENIED'),
+    (b'fatal: cannot run askpass: Permission denied', 'CREDENTIAL_HELPER_FAILED'),
+    (b'fatal: unable to access URL: SSL certificate problem', 'TLS_FAILED'),
+    (b'fatal: could not resolve host github.com', 'NETWORK_FAILED'),
+    (b'fatal: detected dubious ownership in repository', 'OWNERSHIP_FAILED'),
+    (b'! [rejected] main -> main (non-fast-forward)', 'REMOTE_CONFLICT'),
+    (b'fatal: could not create file: Read-only file system', 'FILESYSTEM_FAILED'),
+    (b'fatal: unclassified failure', 'OPERATION_FAILED'),
+])
+def test_git_failure_is_actionable_without_exposing_credentials(tmp_path, monkeypatch, stderr, category):
+    from types import SimpleNamespace
+    secret = b'private-credential-never-in-errors'
+    repo = GitRepository(tmp_path, 'https://github.com/owner/private.git')
+    monkeypatch.setattr('src.services.brain_backup.git.subprocess.run',
+                        lambda *a, **kw: SimpleNamespace(returncode=128, stdout=b'', stderr=stderr+b' '+secret))
+    with pytest.raises(BackupError) as failure:
+        repo.run('ls-remote', '--heads', repo.url)
+    assert str(failure.value) == 'BACKUP_GIT_LS_REMOTE_'+category
+    assert secret.decode() not in str(failure.value) and repo.url not in str(failure.value)
