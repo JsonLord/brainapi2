@@ -49,7 +49,7 @@ def run():
             try:
                 from .state import locked, state_root
                 with locked(state_root() / "barrier.lock"):
-                    manager.backup()
+                    manager.reconcile()
             except Exception as exc:
                 code = str(exc) if isinstance(exc, BackupError) else "BACKUP_CHECKPOINT_FAILED"
                 write_status(state="degraded", error=code)

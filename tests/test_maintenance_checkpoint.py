@@ -251,3 +251,11 @@ def test_retained_local_restart_preserves_accepted_tasks_and_hold(enabled):
     manager.startup()
     assert gate.status()['quiesced'] and gate.status()['pending_tasks']==1
     gate.finish_task('accepted-before-restart');assert gate.checkpoint(manager)['remote_verified']
+
+
+def test_sealed_handoff_pins_periodic_and_shutdown_publication(enabled,monkeypatch):
+    manager,_,_=enabled
+    head=gate.checkpoint(manager)['checkpoint']
+    monkeypatch.setattr(manager.pg,'snapshot',lambda _:pytest.fail('Sealed daemon must not publish a successor'))
+    assert manager.reconcile()==(head,False)
+    assert manager.repo.fetch()==head

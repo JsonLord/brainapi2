@@ -186,6 +186,22 @@ class Manager:
                 raise BackupError("BACKUP_STARTUP_REMOTE_ADVANCED")
             write_status(remote_checkpoint=head, remote_verified=True)
 
+    def reconcile(self):
+        """A sealed handoff pins publication until explicit checkpoint/resume.
+
+        Read paths can lazily initialize derived indexes. Neither periodic nor
+        shutdown reconciliation may move the handoff behind the operator's SHA.
+        """
+        from .maintenance import status
+        control = status()
+        if control.get("quiesced") and control.get("sealed"):
+            receipt = self.receipt()
+            if not receipt or not receipt["head"]:
+                raise BackupError("BACKUP_STARTUP_RESTORE_REQUIRED")
+            self.verify_checkpoint(receipt["head"])
+            return receipt["head"], False
+        return self.backup()
+
     def backup(self, maintenance=None):
         with locked(self.root / "operation.lock"):
             head, manifest, _ = self.remote()

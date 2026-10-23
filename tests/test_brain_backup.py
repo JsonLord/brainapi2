@@ -243,7 +243,7 @@ def test_shutdown_finishes_inflight_then_attempts_final_checkpoint(tmp_path, mon
             return self.stopped
 
     class FakeManager:
-        def backup(self):
+        def reconcile(self):
             attempts.append("checkpoint")
             if len(attempts) == 1:
                 callbacks[signal.SIGTERM]()

@@ -197,6 +197,12 @@ active writers. The normal periodic/shutdown daemon and maintenance operations
 share a file lock. A shutdown checkpoint is still best-effort and is not the
 maintenance barrier.
 
+Once the hold is sealed, the periodic/shutdown daemon only verifies the pinned
+checkpoint; it does not publish a successor until explicit checkpoint/resume.
+Read paths can initialize derived indexes/profiles locally, but must not move the
+operator's handoff SHA through a late shutdown snapshot. Qualification accepts a
+descendant only with an operator-fetched Git checkout proving ancestry.
+
 `BRAIN_BACKUP_MAX_RPO_SECONDS` defaults to `BRAIN_BACKUP_INTERVAL_SECONDS` (300).
 Health exposes restored/remote SHA, lag, dynamic dirty state, last successful
 checkpoint/reconciliation time and age. An unchanged semantic reconciliation
@@ -205,6 +211,8 @@ auth/database/schema/profile and baked-model availability, plus an actual Uvicor
 formatter self-test, are checked; expensive probes are cached for at most 10 seconds.
 Production readiness is withdrawn on observed Git failure, lineage conflict,
 checkpoint age beyond the RPO, or an unhealthy dependency.
+`checkpoint_lag` is an equality indicator: 0 means matching HEAD, 1 means a
+different HEAD, and null means unknown; it is not a count of missing commits.
 
 `ALLOW_CHECKPOINTED_PRODUCTION=false` is the default: ephemeral local storage
 remains production NO-GO. An operator may explicitly set it to `true` to accept

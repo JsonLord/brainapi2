@@ -7,12 +7,13 @@ import argparse
 import json
 import os
 import time
+import subprocess
 from pathlib import Path
 from uuid import uuid4
 import requests
 
 
-def qualify(action, path):
+def qualify(action, path, backup_checkout=None):
     base=os.getenv('QUALIFY_API_URL','http://127.0.0.1:7860').rstrip('/')
     session=requests.Session()
     if base.startswith(('http://127.0.0.1:', 'http://localhost:')):
@@ -65,8 +66,14 @@ def qualify(action, path):
     if action=='restored':
         health=call('GET','/health');policy(health)
         assert health['backup']['startup_id']!=state['pre_rebuild_startup_id']
-        assert health['restored_checkpoint']==state['checkpoint_a']
-        assert health['remote_checkpoint']==state['checkpoint_a'] and health['checkpoint_lag']==0
+        restored=health['restored_checkpoint']
+        if restored!=state['checkpoint_a']:
+            assert backup_checkout is not None,'Descendant requires an operator-fetched checkout for ancestry proof'
+            head=subprocess.check_output(['git','-C',str(backup_checkout),'rev-parse','HEAD'],text=True).strip()
+            assert head==restored
+            subprocess.run(['git','-C',str(backup_checkout),'merge-base','--is-ancestor',state['checkpoint_a'],restored],check=True,capture_output=True)
+            state['verified_descendant']=restored;save(state)
+        assert health['remote_checkpoint']==restored and health['checkpoint_lag']==0
         assert health['backup']['restored'] is True
         assert call('GET','/system/backup/status')['quiesced']
         brain=next(b for b in call('GET','/system/brains-list') if b['name_key']==state['brain_id'])
@@ -94,4 +101,5 @@ def qualify(action, path):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('action',choices=['create','restored','cleanup']);parser.add_argument('--state',type=Path,required=True)
-    args=parser.parse_args();print(json.dumps(qualify(args.action,args.state)))
+    parser.add_argument('--backup-checkout',type=Path,help='Fetched main checkout for verifying a descendant of checkpoint A')
+    args=parser.parse_args();print(json.dumps(qualify(args.action,args.state,args.backup_checkout)))
