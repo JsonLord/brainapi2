@@ -6,6 +6,7 @@
 # Documentation
 README.md
 *.md
+!CONNECTION.md
 
 # Python caches
 __pycache__/

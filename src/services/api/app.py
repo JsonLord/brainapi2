@@ -18,6 +18,7 @@ from uvicorn import run
 
 from src.constants.data import BRAIN_VERSION
 from src.services.api.console_static import SPAStaticFiles
+from src.services.api.connection_docs import connection_docs_router
 from src.services.api.errors import install_error_handlers
 from src.services.api.openapi import install_openapi_contract
 
@@ -227,15 +228,11 @@ app.include_router(system_router)
 app.include_router(backup_router)
 app.include_router(tasks_router)
 app.include_router(public_router)
+app.include_router(connection_docs_router)
 app.include_router(workspace_router)
 app.include_router(workspace_api_router)
 app.include_router(agent_router)
 install_openapi_contract(app)
-
-
-@app.get("/api-docs", include_in_schema=False)
-async def api_docs_redirect():
-    return RedirectResponse(url="/docs", status_code=307)
 
 
 @app.get("/", include_in_schema=False)

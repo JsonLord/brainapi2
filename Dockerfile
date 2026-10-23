@@ -117,6 +117,7 @@ FROM debian:bookworm-slim AS runtime-config
 WORKDIR /runtime/app
 COPY --chmod=755 deploy/ ./deploy/
 COPY entrypoint.sh ./
+COPY --chmod=644 CONNECTION.md ./
 COPY --chmod=755 scripts/ ./scripts/
 RUN test -f scripts/start_with_ollama.py \
     && test -f scripts/preload_ollama_models.sh \
