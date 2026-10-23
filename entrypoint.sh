@@ -47,6 +47,9 @@ export MCP_PORT="${MCP_PORT:-8001}"
 # Resolve the one administrator credential before starting any services.
 /app/.venv/bin/python -c 'from src.services.auth_config import resolve_system_pat; resolve_system_pat()'
 export BRAIN_BACKUP_ENABLED="${BRAIN_BACKUP_ENABLED:-true}"
+export BRAIN_BACKUP_INTERVAL_SECONDS="${BRAIN_BACKUP_INTERVAL_SECONDS:-300}"
+export BRAIN_BACKUP_MAX_RPO_SECONDS="${BRAIN_BACKUP_MAX_RPO_SECONDS:-$BRAIN_BACKUP_INTERVAL_SECONDS}"
+export ALLOW_CHECKPOINTED_PRODUCTION="${ALLOW_CHECKPOINTED_PRODUCTION:-false}"
 export BRAIN_BACKUP_STATE_DIR="${BRAIN_BACKUP_STATE_DIR:-/tmp/brainapi-backup-state}"
 export BRAIN_BACKUP_STARTUP_ID="$(/app/.venv/bin/python -c 'import uuid; print(uuid.uuid4())')"
 mkdir -p "$BRAIN_BACKUP_STATE_DIR"
@@ -60,7 +63,7 @@ export BRAINAPI_DURABLE_ROOT="${BRAINAPI_DURABLE_ROOT:-/data}"
 export PERSISTENT_ROOT="$(/app/.venv/bin/python -c 'from src.services.persistence import enforce_persistence; print(enforce_persistence()["root"])')"
 export PERSISTENCE_MODE="$(/app/.venv/bin/python -c 'from src.services.persistence import persistence_state; print(persistence_state()["mode"])')"
 if [ "$PERSISTENCE_MODE" = "ephemeral" ]; then
-    echo "WARNING: staging/recovery mode; ephemeral storage is NOT PRODUCTION DURABLE."
+    echo "WARNING: local storage is ephemeral; checkpoint recovery, RPO and production readiness are reported by /health."
 fi
 mkdir -p "$PERSISTENT_ROOT/postgres" "$PERSISTENT_ROOT/redis" /var/lib/postgresql
 chmod 0750 "$PERSISTENT_ROOT" "$PERSISTENT_ROOT/redis"
@@ -93,6 +96,8 @@ case "${1:-}" in
     --qualify) exec /app/.venv/bin/python /app/scripts/qualify_hf_embeddings.py ;;
     --qualify-auth) exec /app/.venv/bin/python /app/scripts/qualify_auth.py ;;
     --qualify-registry) exec /app/.venv/bin/python /app/scripts/qualify_brain_registry.py ;;
+    --qualify-backup) exec /app/.venv/bin/python /app/scripts/qualify_content_backup.py ;;
+    --qualify-maintenance) shift; exec /app/.venv/bin/python /app/scripts/qualify_maintenance.py "$@" ;;
 esac
 
 # Print non-secret startup diagnostics
@@ -164,6 +169,7 @@ from src.services.workspaces import WorkspaceService
 WorkspaceService(data_adapter).bootstrap()
 print('[entrypoint] Workspace bootstrap successful.')
 "
+/app/.venv/bin/python -m src.services.brain_backup verify-startup
 
 # Stop temporary initialization daemons so Supervisord manages exactly one instance of each
 echo "[entrypoint] Stopping temporary initialization daemons before handing control to Supervisord..."

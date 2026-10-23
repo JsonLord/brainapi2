@@ -868,3 +868,24 @@ checkpoints and a bounded graceful-shutdown attempt use non-force Git pushes,
 checksums and an operation lock. Existing authoritative registry, unified-auth,
 side-effect-free missing-Brain reads and 768→512 embedding contracts continue to
 apply. See docs/content-backup.md for format, recovery, variables and RPO limits.
+
+## Verified checkpoint maintenance and explicit RPO policy
+
+Preserve all unified-auth, authoritative-registry, side-effect-free 404 and
+EmbeddingGemma native-768 → normalized-512 contracts above. Administrator-only
+`/system/backup/{quiesce,checkpoint,status,resume}` controls content admission and
+tracks accepted HTTP/MCP/Celery work through terminal settlement. A checkpoint
+barrier must push, re-fetch HEAD and validate manifest/checksums before returning
+its durable SHA; failures retain a closed write gate. Its non-secret manifest
+handoff hold survives restore and requires explicit resume. No auth/session
+registry joins content backup.
+
+Startup verifies remote HEAD after restore and after workspace bootstrap. An
+advance fails closed before serving stale writable content. Health distinguishes
+local storage from checkpoint recoverability and exposes SHA/lag/dirty/age fields.
+`BRAIN_BACKUP_MAX_RPO_SECONDS` defaults to interval=300; explicit operator opt-in
+`ALLOW_CHECKPOINTED_PRODUCTION=true` permits ephemeral production readiness only
+with qualified restore, current remote lineage, successful verification within
+RPO, and healthy auth/database/embedding/access logging. Default false retains
+NO-GO. Checkpoint recovery is always `zero_loss_durable=false`; abrupt termination
+may lose writes since the last successful checkpoint.

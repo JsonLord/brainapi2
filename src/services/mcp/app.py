@@ -10,6 +10,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
+from src.services.brain_backup.middleware import ContentAdmissionMiddleware
 
 _project_root = Path(__file__).resolve().parent.parent.parent.parent
 dotenv.load_dotenv(_project_root / ".env")
@@ -290,6 +291,7 @@ app = Starlette(
     + [Mount("/workspace", app=_workspace_mcp_app), Mount("/", app=_mcp_app)],
     middleware=[
         Middleware(TraceMiddleware, service_name="brainapi-mcp"),
+        Middleware(ContentAdmissionMiddleware),
         Middleware(AuthContextMiddleware),
     ],
     lifespan=_lifespan,

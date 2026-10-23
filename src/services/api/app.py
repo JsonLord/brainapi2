@@ -24,6 +24,7 @@ from src.services.api.openapi import install_openapi_contract
 from src.services.api.middlewares.auth import BrainPATMiddleware
 from src.services.api.middlewares.brains import BrainMiddleware
 from src.services.api.routes.auth import auth_router
+from src.services.api.routes.backup import backup_router
 from src.services.api.routes.access_tokens import access_token_router
 from src.services.api.routes.ingest import ingest_router
 from src.services.api.routes.meta import meta_router
@@ -205,6 +206,8 @@ install_error_handlers(app)
 
 app.add_middleware(BrainPATMiddleware)
 app.add_middleware(BrainMiddleware)
+from src.services.brain_backup.middleware import ContentAdmissionMiddleware
+app.add_middleware(ContentAdmissionMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allowed_origins(),
@@ -221,6 +224,7 @@ app.include_router(retrieve_router)
 app.include_router(meta_router)
 app.include_router(model_router)
 app.include_router(system_router)
+app.include_router(backup_router)
 app.include_router(tasks_router)
 app.include_router(public_router)
 app.include_router(workspace_router)

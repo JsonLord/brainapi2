@@ -36,6 +36,10 @@ def validate(root, profile, postgres_major=15):
                 or manifest["embedding_profile"] != profile["profile"]):
             raise BackupError("BACKUP_INCOMPATIBLE_MANIFEST")
         checks = manifest["checksums"]
+        hold = manifest.get("maintenance", {})
+        if hold and (set(hold) != {"id", "quiesced"} or hold["quiesced"] is not True
+                     or not re.fullmatch(r"[0-9a-f]{32}", str(hold["id"]))):
+            raise BackupError("BACKUP_INVALID_MAINTENANCE")
         actual = {p.relative_to(root).as_posix() for p in root.rglob("*")
                   if p.is_file() and p.relative_to(root).parts[0] != ".git"}
         expected = {"manifest.json", *checks}
@@ -144,23 +148,63 @@ class Manager:
                                     shutil.copyfileobj(src, dest)
                         self.pg.tool("pg_restore", self.pg.system, "--list", str(archive))
                     self.pg.restore(staged, registry)
+            # A previous container may still be completing a shutdown push.
+            # Never publish readiness/writability from a stale restore.
+            latest, _, _ = self.remote()
+            if latest != head:
+                from .maintenance import fail
+                fail("BACKUP_STARTUP_REMOTE_ADVANCED")
+                raise BackupError("BACKUP_STARTUP_REMOTE_ADVANCED")
+            from .maintenance import initialize
+            initialize(manifest.get("maintenance") if manifest else None, preserve_work=local)
             self.remember(head, manifest["content_digest"] if manifest else None)
-            write_status(state="ready", commit=head, restored=bool(manifest and not local))
+            write_status(state="ready", commit=head, restored=bool(manifest and not local),
+                         restored_checkpoint=head if manifest and not local else None,
+                         remote_checkpoint=head, restore_qualified=bool(manifest),
+                         checkpoint_generation=generation(), remote_verified=True,
+                         last_success=datetime.now(timezone.utc).isoformat() if manifest else None)
 
-    def backup(self):
+    def verify_checkpoint(self, expected):
+        with locked(self.root / "operation.lock"):
+            head, manifest, _ = self.remote()
+            if head != expected or manifest is None:
+                write_status(state="degraded", remote_checkpoint=head, remote_verified=False,
+                             error="BACKUP_REMOTE_CONFLICT")
+                raise BackupError("BACKUP_REMOTE_CONFLICT")
+            write_status(remote_checkpoint=head, remote_verified=True)
+            return head
+
+    def verify_startup(self):
+        receipt = self.receipt()
+        if not receipt:
+            raise BackupError("BACKUP_STARTUP_RESTORE_REQUIRED")
+        with locked(self.root / "operation.lock"):
+            head, _, _ = self.remote()
+            if head != receipt["head"]:
+                from .maintenance import fail
+                fail("BACKUP_STARTUP_REMOTE_ADVANCED")
+                raise BackupError("BACKUP_STARTUP_REMOTE_ADVANCED")
+            write_status(remote_checkpoint=head, remote_verified=True)
+
+    def backup(self, maintenance=None):
         with locked(self.root / "operation.lock"):
             head, manifest, _ = self.remote()
             receipt = self.receipt()
             if receipt is None or receipt["head"] != head:
                 raise BackupError("BACKUP_REMOTE_CONFLICT")
             before = generation()
+            if maintenance is None:
+                from .maintenance import hold_manifest
+                maintenance = hold_manifest()
             with tempfile.TemporaryDirectory(dir=self.root) as temp:
                 output = Path(temp)
                 registry, fingerprints = self.pg.snapshot(output)
                 digest = hashlib.sha256(canonical({"registry": registry, "fingerprints": fingerprints,
                                                    "embedding": self.pg.profile})).hexdigest()
-                if manifest and digest == manifest["content_digest"]:
+                if manifest and digest == manifest["content_digest"] and manifest.get("maintenance", {}) == maintenance:
                     write_status(state="ready", commit=head, dirty=generation() != before,
+                                 checkpoint_generation=before, remote_checkpoint=head, remote_verified=True,
+                                 last_success=datetime.now(timezone.utc).isoformat(),
                                  checked_at=datetime.now(timezone.utc).isoformat())
                     return head, False
                 archives = {}
@@ -180,10 +224,17 @@ class Manager:
                             "embedding_profile": self.pg.profile["profile"], "stored_dimension": self.pg.profile["stored_dimension"],
                             "embedding": self.pg.profile, "brains": sorted(fingerprints), "fingerprints": fingerprints,
                             "archives": archives, "checksums": checks, "content_digest": digest}
+                document["maintenance"] = maintenance
                 (output / "manifest.json").write_bytes(canonical(document))
                 validate(output, self.pg.profile, self.pg.major_version())
                 new_head = self.repo.publish(output, head)
+                # A successful push alone is insufficient for a handoff receipt.
+                verified, verified_manifest, _ = self.remote()
+                if verified != new_head or verified_manifest is None:
+                    raise BackupError("BACKUP_REMOTE_CONFLICT")
                 self.remember(new_head, digest)
                 write_status(state="ready", commit=new_head, dirty=generation() != before,
+                             checkpoint_generation=before, remote_checkpoint=new_head,
+                             remote_verified=True,
                              last_success=datetime.now(timezone.utc).isoformat())
                 return new_head, True

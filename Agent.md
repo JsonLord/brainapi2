@@ -296,7 +296,8 @@ brain (`brain_id=null`). The console stores no submitted access credential.
 See `docs/security/credentials.md` for legacy migration and exposed-token rotation.
 
 `/health` reports durability. Ephemeral staging requires explicit
-`ALLOW_EPHEMERAL_STORAGE=true` and remains degraded / production NO-GO.
+`ALLOW_EPHEMERAL_STORAGE=true` and remains degraded / production NO-GO unless the
+operator explicitly accepts the checkpointed-production policy documented below.
 
 ## GitHub Brain content recovery
 
@@ -316,3 +317,15 @@ before replacement. HF replacement startup can overlap the old container's final
 shutdown push; do not rely on that final push as a restore barrier. Compare the
 restored commit with the intended checkpoint before resuming writes. See the
 [live qualification and observed limitations](docs/content-backup-live-qualification.md).
+
+The administrator maintenance API now enforces that sequence: quiesce/checkpoint,
+record remotely verified SHA, rebuild, verify replacement restored/current SHA and
+retrieval while still held, then explicitly resume. See `/system/backup/status`.
+A manifest handoff hold survives replacement. Startup remote-head advances fail
+closed before serving. Never bypass a hold or lineage failure to force readiness.
+
+`BRAIN_BACKUP_MAX_RPO_SECONDS` defaults to the checkpoint interval (300).
+`ALLOW_CHECKPOINTED_PRODUCTION=false` preserves ephemeral production NO-GO. Only
+an explicit operator opt-in can accept checkpointed production, and only while
+all remote/RPO/auth/database/embedding/access-log checks pass. Report the policy,
+observed checkpoint age, and `zero_loss_durable=false` without implying zero loss.

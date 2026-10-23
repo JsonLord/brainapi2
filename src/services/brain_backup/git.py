@@ -29,7 +29,7 @@ class GitRepository:
         return cls(path, f"https://github.com/{repo}.git",
                    os.getenv("BRAIN_BACKUP_BRANCH", "main"), token)
 
-    def run(self, *args, check=True):
+    def run(self, *args, check=True, timeout=90):
         env = os.environ.copy()
         env.update(GIT_TERMINAL_PROMPT="0", GIT_TRACE="0", GIT_CURL_VERBOSE="0",
                    GIT_TRACE_CURL="0", GIT_TRACE_PACKET="0")
@@ -43,7 +43,7 @@ class GitRepository:
                        GIT_CONFIG_VALUE_0="")
         try:
             result = subprocess.run(["git", "-C", str(self.path), *args], env=env,
-                                    capture_output=True, timeout=90)
+                                    capture_output=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired):
             raise BackupError("BACKUP_GIT_UNAVAILABLE") from None
         if check and result.returncode:

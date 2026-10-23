@@ -51,6 +51,7 @@ REDIS_URL = redis_connection_url(
 
 ingestion_app = Celery(
     "ingestion_app",
+    task_cls="src.services.brain_backup.tasks:ContentTask",
     broker=(
         "amqp://kalo:kalo@localhost:5672/"
         if os.getenv("CELERY_BACKEND") == "rabbitmq"

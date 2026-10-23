@@ -18,6 +18,8 @@ def state_root():
 def locked(path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as stream:
+        if os.fstat(stream.fileno()).st_uid == os.geteuid():
+            os.fchmod(stream.fileno(), 0o660)
         fcntl.flock(stream, fcntl.LOCK_EX)
         stream.seek(0)
         yield stream
@@ -68,7 +70,15 @@ def public_status():
         return {"enabled": False}
     try:
         value = json.loads((state_root() / "status.json").read_text())
-        return {"enabled": True, **value}
+        from datetime import datetime, timezone
+        stamp = value.get("last_success")
+        age = max(0., (datetime.now(timezone.utc) - datetime.fromisoformat(stamp)).total_seconds()) if stamp else None
+        local, remote = value.get("commit"), value.get("remote_checkpoint")
+        dirty = generation() != value.get("checkpoint_generation", 0)
+        return {"enabled": True, **value, "dirty": dirty, "backup_dirty": dirty,
+                "restored_checkpoint": value.get("restored_checkpoint"),
+                "remote_checkpoint": remote, "checkpoint_lag": (0 if local == remote else 1) if remote else None,
+                "backup_last_success": stamp, "backup_age_seconds": age}
     except (OSError, ValueError):
         return {"enabled": True, "state": "not_ready"}
 

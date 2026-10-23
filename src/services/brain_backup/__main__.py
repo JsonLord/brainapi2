@@ -31,6 +31,9 @@ def run():
             PostgreSQLDataClient()._ensure_system_schema()
             manager.startup()
             return
+        if sys.argv[1:] == ["verify-startup"]:
+            manager.verify_startup()
+            return
         if sys.argv[1:] != ["run"]:
             raise BackupError("BACKUP_INVALID_COMMAND")
         interval = int(os.getenv("BRAIN_BACKUP_INTERVAL_SECONDS", "300"))
@@ -44,10 +47,15 @@ def run():
         signal.signal(signal.SIGINT, terminate)
         def attempt():
             try:
-                manager.backup()
+                from .state import locked, state_root
+                with locked(state_root() / "barrier.lock"):
+                    manager.backup()
             except Exception as exc:
                 code = str(exc) if isinstance(exc, BackupError) else "BACKUP_CHECKPOINT_FAILED"
                 write_status(state="degraded", error=code)
+                if code in {"BACKUP_REMOTE_CONFLICT", "BACKUP_LOCAL_REMOTE_CONFLICT"}:
+                    from .maintenance import fail
+                    fail(code)
                 logging.error("%s", code)
 
         while not stop.wait(interval):

@@ -22,6 +22,18 @@ class HealthResponse(BaseModel):
     version: str = Field(description="Running BrainAPI version.")
     backup: dict = Field(default_factory=dict, description="Non-secret remote checkpoint state.")
     persistence: dict = Field(default_factory=dict, description="Non-secret durability and release status.")
+    storage: dict = Field(default_factory=dict, description="Local storage and explicit checkpoint RPO policy.")
+    checks: dict = Field(default_factory=dict, description="Safe dependency readiness results.")
+    maintenance: dict = Field(default_factory=dict, description="Write admission and maintenance hold state.")
+    restored_checkpoint: str | None = None
+    remote_checkpoint: str | None = None
+    checkpoint_lag: int | None = None
+    backup_dirty: bool = False
+    backup_last_success: str | None = None
+    backup_age_seconds: float | None = None
+    content_durable: bool = False
+    zero_loss_durable: bool = False
+    rpo_seconds: int | None = None
 
 
 PUBLIC_ERROR_RESPONSES = {
@@ -43,11 +55,30 @@ async def health() -> HealthResponse:
     """Return public liveness metadata without accessing customer data."""
 
     from src.services.persistence import persistence_state
-    state = persistence_state()
     from src.services.brain_backup.state import public_status
     backup = public_status()
-    return HealthResponse(status="ok" if state["mode"] == "durable" and backup.get("state", "ready") == "ready" else "degraded",
-                          service="brainapi", version=BRAIN_VERSION, persistence=state, backup=backup)
+    from src.services.brain_backup.health import checks as probe
+    import asyncio
+    checks = await asyncio.to_thread(probe) if backup.get("enabled") else {}
+    # Probing may detect a lineage conflict; refresh state before reporting it.
+    backup = public_status()
+    if checks:
+        backup.update(remote_checkpoint=checks.get("remote_checkpoint"))
+        remote = checks.get("remote_checkpoint")
+        backup["checkpoint_lag"] = (0 if backup.get("commit") == remote else 1) if remote else None
+    state = persistence_state(backup=backup, checks=checks)
+    from src.services.brain_backup.maintenance import status as maintenance_status
+    maintenance = maintenance_status()
+    state['writable'] = not maintenance.get('quiesced', False)
+    if maintenance.get('error'):
+        state['production_ready'] = False
+    fields = {key: backup.get(key) for key in ("restored_checkpoint", "remote_checkpoint", "checkpoint_lag",
+              "backup_last_success", "backup_age_seconds")}
+    return HealthResponse(status="ok" if state["production_ready"] else "degraded",
+                          service="brainapi", version=BRAIN_VERSION, persistence=state, storage=state,
+                          backup=backup, checks=checks, maintenance=maintenance, backup_dirty=backup.get("dirty", False),
+                          content_durable=state["content_durable"], zero_loss_durable=False,
+                          rpo_seconds=state["rpo_seconds"], **fields)
 
 
 @public_router.get(

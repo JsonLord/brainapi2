@@ -150,3 +150,71 @@ drops only those test databases, restores their IDs/workspaces/facts, calls actu
 search/context controllers, and checks a new mutation produces a new commit.
 Retrieval qualification requires the preloaded real Ollama model and normal NLP
 runtime. It never pulls a model at application startup or deploys a Space.
+
+## Verified maintenance barrier and RPO readiness
+
+`SYSTEM_PAT` administrators have these operations; scoped tokens cannot use them:
+
+| Operation | Effect |
+| --- | --- |
+| `POST /system/backup/quiesce` | Close new HTTP/MCP content admission; accepted requests/tasks may finish. |
+| `POST /system/backup/checkpoint?timeout_seconds=120` | Quiesce, drain admitted requests and all tracked Celery deliveries/children/retries, seal, snapshot, push, fetch HEAD and validate manifest/checksums. Return exact durable SHA. |
+| `GET /system/backup/status` | Read hold state, pending task count, durable SHA and safe error code. |
+| `POST /system/backup/resume` | Verify/publish the hold release before reopening admission. Also cancels maintenance after accepted work settles. |
+
+A successful barrier returns `state=durable`, `checkpoint=<sha>`, `dirty=false`,
+`remote_verified=true`, `quiesced=true`. Writes stay held until explicit resume.
+A drain timeout, ambiguous task publication, Git failure or verification conflict
+keeps admission closed and reports degraded state. Accepted work settles at Celery
+SUCCESS/FAILURE terminal delivery, including all already-published descendants;
+failed ingestion does not become successful merely because a checkpoint exists.
+An active delivery is counted separately from its publication so broker
+redelivery cannot make the barrier finish while a duplicate execution is active.
+External administrative SQL or independently running writers must also be stopped;
+this barrier controls the application's HTTP/MCP and managed Celery writers.
+
+The local control/accepted-work ledger contains only opaque IDs/states and is not
+backed up. A version-1 manifest optionally carries `maintenance` as an empty object
+or `{ "id": "<opaque-id>", "quiesced": true }`. This non-secret handoff metadata
+makes a freshly restored replacement remain quiesced. Publishing/releasing that
+hold is a real control-state change and may create a commit with unchanged content.
+Normal unchanged reconciliation still creates no commit.
+
+Planned restart sequence:
+
+1. Quiesce writers and wait accepted work to settle using the checkpoint operation.
+2. Record its remotely verified checkpoint SHA **A**; do not resume the old container.
+3. Trigger the HF rebuild/restart.
+4. Verify replacement `/health`: `restored_checkpoint` is A or a verified descendant,
+   `remote_checkpoint` matches, `checkpoint_lag=0`, and no backup error is present.
+5. Verify canonical identities and retrieval while the hold remains closed.
+6. Explicitly resume through `/system/backup/resume`, then verify write admission.
+
+Startup re-fetches HEAD after restoration, and again after workspace bootstrap
+before Supervisor/API startup. Any advance fails closed with
+`BACKUP_STARTUP_REMOTE_ADVANCED`; it never serves stale writable content or merges
+active writers. The normal periodic/shutdown daemon and maintenance operations
+share a file lock. A shutdown checkpoint is still best-effort and is not the
+maintenance barrier.
+
+`BRAIN_BACKUP_MAX_RPO_SECONDS` defaults to `BRAIN_BACKUP_INTERVAL_SECONDS` (300).
+Health exposes restored/remote SHA, lag, dynamic dirty state, last successful
+checkpoint/reconciliation time and age. An unchanged semantic reconciliation
+refreshes the successful verification time without creating a commit. Git reachability,
+auth/database/schema/profile and baked-model availability, plus an actual Uvicorn
+formatter self-test, are checked; expensive probes are cached for at most 10 seconds.
+Production readiness is withdrawn on observed Git failure, lineage conflict,
+checkpoint age beyond the RPO, or an unhealthy dependency.
+
+`ALLOW_CHECKPOINTED_PRODUCTION=false` is the default: ephemeral local storage
+remains production NO-GO. An operator may explicitly set it to `true` to accept
+bounded-loss GitHub checkpoint recovery. Readiness then also requires a qualified
+restore, current verified remote lineage, a successful checkpoint within the maximum
+age, and all dependency checks. Local storage is still reported `ephemeral`, content
+recovery `github-checkpoint`, `zero_loss=false`; this setting does not improve the
+underlying durability. With interval and maximum age both 300, long snapshots or
+uploads can temporarily exceed the policy and withdraw readiness; monitor this.
+
+Unexpected container death can lose writes since the last successful checkpoint.
+Zero-loss operation would require a synchronous external durable write path. This
+implementation does not commit to Git synchronously for every Brain write.
