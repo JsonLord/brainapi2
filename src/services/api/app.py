@@ -204,10 +204,10 @@ app = FastAPI(
 )
 install_error_handlers(app)
 
-app.add_middleware(BrainPATMiddleware)
-app.add_middleware(BrainMiddleware)
 from src.services.brain_backup.middleware import ContentAdmissionMiddleware
 app.add_middleware(ContentAdmissionMiddleware)
+app.add_middleware(BrainPATMiddleware)
+app.add_middleware(BrainMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allowed_origins(),

@@ -291,8 +291,8 @@ app = Starlette(
     + [Mount("/workspace", app=_workspace_mcp_app), Mount("/", app=_mcp_app)],
     middleware=[
         Middleware(TraceMiddleware, service_name="brainapi-mcp"),
-        Middleware(ContentAdmissionMiddleware),
         Middleware(AuthContextMiddleware),
+        Middleware(ContentAdmissionMiddleware),
     ],
     lifespan=_lifespan,
 )
