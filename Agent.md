@@ -310,3 +310,9 @@ Configure the documented `BRAIN_BACKUP_*` variables; keep async checkpoint RPO a
 ephemeral health limitations explicit. No automatic deployment. The disposable
 round-trip gate is `scripts/qualify_content_backup.py`; never point it at real
 Brain databases. Auth tokens are separately reissued after ephemeral recovery.
+
+For planned HF restarts, quiesce writers and verify a completed remote checkpoint
+before replacement. HF replacement startup can overlap the old container's final
+shutdown push; do not rely on that final push as a restore barrier. Compare the
+restored commit with the intended checkpoint before resuming writes. See the
+[live qualification and observed limitations](docs/content-backup-live-qualification.md).

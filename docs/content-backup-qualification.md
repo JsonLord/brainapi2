@@ -2,7 +2,9 @@
 
 Qualified on `feat/unified-auth-runtime`, based on unified-auth commit
 `281c4ac9eac90204c9f47795fbacc5011937684b`. No Hugging Face deployment or production
-Brain mutation was performed.
+Brain mutation was performed during that initial local qualification. Subsequent
+authorized HF deployment and actual GitHub push/rebuild/restore results are in
+[live qualification evidence](content-backup-live-qualification.md).
 
 - Full non-integration suite: **761 passed, 22 skipped, 3 deselected, 16 subtests
   passed**, with the same four independently established baseline failures:

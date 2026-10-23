@@ -89,6 +89,21 @@ receipts to bypass conflicts, force push, or use the old offline Redis/volume
 backup as a content checkpoint. If two writers diverge, choose/merge content in an
 isolated recovery environment, qualify it, and publish a reviewed successor.
 
+### Planned Hugging Face restarts
+
+Before restarting/rebuilding an ephemeral Space, quiesce content writers and wait
+for a successful checkpoint containing their completed writes. Confirm the remote
+manifest/commit matches `/health` and validate the snapshot before replacement.
+HF can start a replacement before the old container finishes its final shutdown
+checkpoint; the replacement can therefore restore the preceding commit. A final
+shutdown attempt alone is not a maintenance checkpoint barrier.
+
+After startup, compare the restored commit with the intended remote checkpoint
+and verify identities and retrieval before resuming writers. If a later shutdown
+commit appeared, preserve both histories and local state, stop writers, and follow
+the isolated recovery procedure above. Do not bypass lineage protection or force
+push. See [live qualification evidence](content-backup-live-qualification.md).
+
 ## Runtime and limits
 
 A PostgreSQL connection hook marks successful content mutations dirty across API,
